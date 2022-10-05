@@ -34,3 +34,116 @@ __Technical prerequisites:__
 
 __Review the [workflow readme](./workflow-README.md) steps.__
 
+## Using this solution:
+
+### Prepare the salt-master configuration:
+Configure SUSE Manager API credentials in a config file in 
+
+```/etc/salt/master.d/spacewalk.conf```
+and add also runners_dir to this config file:
+```
+# cat spacewalk.conf 
+spacewalk:
+  suma1.bo2go.home:
+    username: 'bjin'
+    password: 'Suselinux01!'
+
+runner_dirs:
+  - /srv/salt/runners
+  ```
+
+> never modify susemanager.conf file as this will be overwritten by SUSE Manager upgrades. \
+> after adding and modifying salt-master config files salt-master needs to be restarted. \
+```systemctl restart salt-master```
+
+### Download and place the salt states, modules, orchestrate files into salt file_roots e.g. /srv/salt
+
+Below is the content in this repository. Feel free to use other directory and file names.
+```
+# tree /srv/salt
+├── _modules
+│   ├── crmhana.py
+│   └── patch_hana.py
+├── _states
+│   ├── crmhana.py
+│   └── patch_hana.py
+├── myhana
+│   ├── init.sls
+│   ├── prep_primary_node_for_patching.sls
+│   ├── reactor_job_check.sls
+│   ├── reactor_patch_diskless_node.sls
+│   ├── reactor_patch_master_node.sls
+│   ├── reactor_patch_secondary.sls
+│   ├── reactor_prep_primary_node_patching.sls
+│   ├── reactor_reboot.sls
+│   ├── reactor_set_cluster_nodeinfo_grains.sls
+│   ├── reactor_set_off_maintenance.sls
+│   ├── reactor_start_pacemaker.sls
+│   ├── reactor_start_pacemaker_diskless_node.sls
+│   ├── reactor_start_pacemaker_oldprimary.sls
+│   ├── set_msl_maintenance_off.sls
+│   ├── start_pacemaker.sls
+│   ├── start_pacemaker_diskless_node.sls
+│   └── start_pacemaker_oldprimary.sls
+├── orchestrate
+│   ├── prep_master_node_for_patching.sls
+│   ├── set_maintenance_off.sls
+│   ├── start_pacemaker_diskless_node.sls
+│   ├── start_pacemaker_oldprimary_node.sls
+│   └── start_pacemaker_secondary_node.sls
+└── runners
+    ├── checkjob_status.py
+    ├── patch_hana.py
+    └── reboot_host.py
+```
+__Create and define pillar data for the cluster nodes:__
+```
+# cat /srv/pillar/myhana/init.sls 
+hana_cluster1:
+  - hana-1.bo2go.home
+  - hana-2.bo2go.home
+  - hana-3.bo2go.home
+```
+
+> Synchronize the new modules out to the SAP HANA Cluster nodes: \
+```# salt "hana-*" saltutil.sync_all``` \
+
+### __Use reactor system:__
+The usage of reactor allows great flexibility to define the patching steps in a highly granular manner.
+
+```
+# cat /etc/salt/master.d/patchhana.conf 
+reactor:
+  - 'suma/hana/secondary/patch/ready':
+    - /srv/salt/myhana/reactor_patch_secondary.sls
+  - 'suma/hana/cluster/nodeinfo/*':
+    - /srv/salt/myhana/reactor_set_cluster_nodeinfo_grains.sls
+  - 'suma/patch/job/id':
+    - /srv/salt/myhana/reactor_job_check.sls
+  - 'suma/patch/job/finished':
+    - /srv/salt/myhana/reactor_reboot.sls
+  - 'suma/reboot/job/id':
+    - /srv/salt/myhana/reactor_job_check.sls
+  - 'suma/hana_secondary/reboot/job/finished':
+    - /srv/salt/myhana/reactor_start_pacemaker.sls
+  - 'suma/cluster/secondary/started/ready_unset_maintenance_msl':
+    - /srv/salt/myhana/reactor_set_off_maintenance.sls
+  - 'suma/cluster/idle/after/maintenance/ready_to_patch_diskless_node':
+    - /srv/salt/myhana/reactor_patch_diskless_node.sls
+  - 'suma/diskless_node/reboot/job/finished':
+    - /srv/salt/myhana/reactor_start_pacemaker_diskless_node.sls
+  - 'suma/cluster/diskless_node/started/ready_to_patch_master_node':
+    - /srv/salt/myhana/reactor_prep_primary_node_patching.sls
+  - 'suma/hana/primary/patch/ready':
+    - /srv/salt/myhana/reactor_patch_master_node.sls
+  - 'suma/hana_primary/reboot/job/finished':
+    - /srv/salt/myhana/reactor_start_pacemaker_oldprimary.sls
+```
+> After each reactor modification salt-master needs to be restarted. \
+
+## Start the entire workflow:
+Run the init.sls state to all SAP HANA Cluster nodes. \
+```# salt "hana-*" state.apply myhana```
+
+Once the init state has started all subsequent states will be triggered by defined reactor states.
+
