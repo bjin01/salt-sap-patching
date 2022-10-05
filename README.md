@@ -23,12 +23,12 @@ __Technical prerequisites:__
 * pacemaker cluster resource rsc_SAPHana parameter AUTOMATED_REGISTER=true is set.
 
 ## __Tested scenario:__
-SLES-for-SAP 15SP3 x86_64
-SAP HANA SR Scale-up - 3 node cluster (diskless setup)
-SUSE Manager 4.2.8
-salt-minion-3004
-salt-master-3002.2
-python3.6
+- SLES-for-SAP 15SP3 x86_64
+- SAP HANA SR Scale-up - 3 node cluster (diskless setup)
+- SUSE Manager 4.2.8
+- salt-minion-3004
+- salt-master-3002.2
+- python3.6
 
 ![Architecture](./saphana-patching-architecture)
 
