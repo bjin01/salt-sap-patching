@@ -32,3 +32,5 @@ __Technical prerequisites:__
 
 ![Architecture](./saphana-patching-architecture)
 
+__Review the [workflow readme](./workflow-README.md) steps.__
+
