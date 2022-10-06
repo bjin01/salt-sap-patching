@@ -147,3 +147,88 @@ Run the init.sls state to all SAP HANA Cluster nodes. \
 
 Once the init state has started all subsequent states will be triggered by defined reactor states.
 
+#
+#
+
+## Important timeout and interval settings:
+
+Loop check interval and timeout for runner module checkjob_status:
+
+Below is an example showing that __*interval in seconds*__ and __*timeout in minutes*__ used within the runner module for repeadly checking patch job status.
+```
+# cat reactor_job_check.sls
+patch_job_check_{{ data['data']['node'] }}_{{ data['data']['jobid'] }}:
+  runner.checkjob_status.jobstatus:
+    - jobid: {{ data['data']['jobid'] }}
+    - target_system: {{ data['data']['node'] }}
+    - interval: 60
+    - timeout: 15
+```
+
+In salt execution module __*bocrm.wait_for_cluster_idle*__ function is loop checking for pacemaker cluster state if the state is idle or not. \
+> Never touch pacemaker cluster if the cluster state is not idle! \
+
+For this function there are input parameters interval in seconds and timeout in minutes required. \
+Select the timeout in minutes in accordance to your cluster SAP HANA realistic start time duration. If SAP HANA primary start takes e.g. 10 minutes than you might need to set a timeout for 15 minutes. \
+> The timeout must be set longer than the node reboot takes. If baremetal system takes 30 minutes for one reboot than the timeout must be set greater than 30 minutes.
+
+> The same decision must be taken if using __*bocrm.wait_for_cluster_idle*__ right after unset maintenance and move msl resource states.
+```
+check_for_clusterstate_after_maintenance_off_{{ hostname }}:
+  module.run:
+    - name: bocrm.wait_for_cluster_idle
+    - interval: 60
+    - timeout: 10
+    - require:
+      - module: start_pacemaker_{{ hostname }}
+```
+
+## Important grains:
+This patching automation is designed to patch cluster nodes one after the other. In order to identify the node roles as primary, secondary and diskless node the salt execution module __*bocrm.check_sr_status*__ will autot-detect the cluster nodes and current role based on __crm__ and __SAPHanaSR-showAttr__ outputs. \
+The function will then auto-set grains key value pairs on each SAP HANA and diskless node.
+
+> If the cluster does not have diskless node than you will only find two nodes.
+> On diskless node SAPHanaSR-showAttr does not exist.
+
+Grains output:
+```
+# salt "hana-*" bocrm.check_sr_status
+hana-3.bo2go.home:
+    ----------
+    cluster_nodes:
+        - hana-1
+        - hana-2
+        - hana-3
+    diskless_node:
+        - hana-3
+    no_SAPHanaSR-showAttr:
+        SAPHanaSR-showAttr output is empty. This host is not a SAP HANA host.
+hana-2.bo2go.home:
+    ----------
+    SOK:
+        True
+    cluster_nodes:
+        - hana-1
+        - hana-2
+        - hana-3
+    diskless_node:
+        - hana-3
+    hana_primary:
+        - hana-2
+    hana_secondary:
+        - hana-1
+hana-1.bo2go.home:
+    ----------
+    SOK:
+        True
+    cluster_nodes:
+        - hana-1
+        - hana-2
+        - hana-3
+    diskless_node:
+        - hana-3
+    hana_primary:
+        - hana-2
+    hana_secondary:
+        - hana-1
+```
