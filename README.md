@@ -13,6 +13,12 @@ __The saltstack states and modules you can find here is to help automating SAP H
 * start pacemaker, unset maintenance mode in pacemaker, clear location contraints(cli-ban)
 * move msl_resource from primary SAP HANA System Replication site to the secondary site 
 
+__Skills required:__
+Good knowledge about how to configure pacemaker cluster
+Good knowledge about SUSE SAP HANA SR Scale-up cluster setup
+Good knowledge about salt states and modules
+Knowledge about how to use SUSE Manager
+
 __Technical prerequisites:__
 * SLES-for-SAP SLES15SP3
 * Software pattern ha_sles, sap-hana installed
