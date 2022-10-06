@@ -238,3 +238,64 @@ hana-1.bo2go.home:
     hana_secondary:
         - hana-1
 ```
+#
+#
+
+## Additional salt execution, state, runner modules
+In order to capture pacemaker cluster runtime information additional salt __execution modules__ have been developed. \
+[bocrm module](./srv/salt/_modules/crmhana.py) \
+
+```
+# salt "hana*" sys.list_functions bocrm
+hana-1.bo2go.home:
+    - bocrm.check_if_maintenance
+    - bocrm.check_if_nodes_online
+    - bocrm.check_sr_status
+    - bocrm.delete_cli_ban_rule
+    - bocrm.find_cluster_nodes
+    - bocrm.get_dc
+    - bocrm.get_msl_resource_info
+    - bocrm.if_cluster_state_idle
+    - bocrm.is_cluster_idle
+    - bocrm.is_quorum
+    - bocrm.move_msl_resource
+    - bocrm.off_msl_maintenance
+    - bocrm.pacemaker
+    - bocrm.patch_diskless_node
+    - bocrm.set_msl_maintenance
+    - bocrm.set_off_msl_maintenance
+    - bocrm.set_on_msl_maintenance
+    - bocrm.start_pacemaker
+    - bocrm.stop_pacemaker
+    - bocrm.sync_status
+    - bocrm.wait_for_cluster_idle
+```
+> salt execution modules could be used in state file as well. Here an example:
+```
+check_for_clusterstate_after_maintenance_off_{{ hostname }}:
+  module.run:
+    - name: bocrm.wait_for_cluster_idle
+    - interval: 60
+    - timeout: 10
+    - require:
+      - module: start_pacemaker_{{ hostname }}
+```
+
+
+The __state module__ have been developed for states. \
+[state modules](./srv/salt/_states/crmhana.py)
+```
+# salt "hana*" sys.list_state_functions crmhana
+hana-1.bo2go.home:
+    - crmhana.precheck
+    - crmhana.set_msl_maintenance
+```
+
+
+The __runner modules__ have been developed for calling SUSE Manager API.
+3 runner modules or python scripts have been written to interact with SUSE Manager API. \
+[checkjob_status.py](./srv/salt/runners/checkjob_status.py) \
+[patch_hana.py](./srv/salt/runners/patch_hana.py) \
+[reboot_host.py](./srv/salt/runners/reboot_host.py)
+
+> In order to use the SUSE Manager API the login credentials must be provided in a salt-master config file. e.g [spacewalk.conf](./etc/salt/master.d/spacewalk.conf)
