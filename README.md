@@ -2,9 +2,10 @@
 This repository contains saltstack configurations, modules and states which have been created for a fully automated patching of SAP HANA Database Scale-up cluster.
 
 ## __Motivation__
-Patching SAP HANA Scale-up cluster Linux OS can be challenging. Before patching the Linux (SLES-for-SAP) OS administrators need to issue certain cluster actions and move resources from one node to another. The cluster maintenance steps (manually) could be found in [SAP HANA System Replication Scale-Up - Performance Optimized Scenario](https://documentation.suse.com/sbp/all/single-html/SLES4SAP-hana-sr-guide-PerfOpt-15/#id-maintenance). 
+Patching SAP HANA Scale-up cluster Linux OS can be challenging. Before patching the Linux (SLES-for-SAP) OS admins need to execute certain cluster commands and move resources from one node to another. The cluster maintenance steps (manually) could be found in [SAP HANA System Replication Scale-Up - Performance Optimized Scenario](https://documentation.suse.com/sbp/all/single-html/SLES4SAP-hana-sr-guide-PerfOpt-15/#id-maintenance).
 
-__The saltstack states and modules you can find here is to help automating SAP HANA Cluster maintenance tasks by:__
+
+__The saltstack states and modules you can find here are to help automating SAP HANA Cluster maintenance tasks by:__
 * precheck cluster health and SAP HANA System Replication status (SOK)
 * set SAP HANA msl_resource into maintenance mode
 * schedule and deploy patch job in SUSE Manager to the cluster nodes 
@@ -14,9 +15,9 @@ __The saltstack states and modules you can find here is to help automating SAP H
 * move msl_resource from primary SAP HANA System Replication site to the secondary site 
 
 __Skills required:__
-Good knowledge about how to configure pacemaker cluster
-Good knowledge about SUSE SAP HANA SR Scale-up cluster setup
-Good knowledge about salt states and modules
+Knowledge about how to configure pacemaker cluster
+Knowledgeabout SUSE SAP HANA SR Scale-up cluster setup
+Knowledge about salt states and modules
 Knowledge about how to use SUSE Manager
 
 __Technical prerequisites:__
@@ -122,8 +123,6 @@ The usage of reactor allows great flexibility to define the patching steps in a 
 reactor:
   - 'suma/hana/secondary/patch/ready':
     - /srv/salt/myhana/reactor_patch_secondary.sls
-  - 'suma/hana/cluster/nodeinfo/*':
-    - /srv/salt/myhana/reactor_set_cluster_nodeinfo_grains.sls
   - 'suma/patch/job/id':
     - /srv/salt/myhana/reactor_job_check.sls
   - 'suma/patch/job/finished':
@@ -239,11 +238,10 @@ hana-1.bo2go.home:
         - hana-1
 ```
 
-The grains hana_info will be set in the execution module function ```bocrm.check_sr_status```.\
+The grains ```hana_info``` will be set by the execution module function ```bocrm.check_sr_status```.\
 
-In the state module function ```crmhana.precheck``` the ```hana_info``` grains will be deleted in the if it exists. \
-It is crucial to use ```crmhana.precheck``` and ```bocrm.check_sr_status``` to reset grains values so that the node roles have been identified correctly.
-
+In the state module function ```crmhana.precheck``` the ```hana_info``` grains will be deleted if it exists. \
+It is crucial to use ```crmhana.precheck``` and ```bocrm.check_sr_status``` to first delete and then create grains values so that the node roles have been identified correctly. In SAP HANA Cluster the node role can be changed due to fail-over or resource move.
 
 #
 #
@@ -299,7 +297,7 @@ hana-1.bo2go.home:
 ```
 
 
-The __runner modules__ have been developed for calling SUSE Manager API.
+The __runner modules__ have been developed for calling SUSE Manager API to create patch and reboot jobs.
 3 runner modules or python scripts have been written to interact with SUSE Manager API. \
 [checkjob_status.py](./srv/salt/runners/checkjob_status.py) \
 [patch_hana.py](./srv/salt/runners/patch_hana.py) \
@@ -307,7 +305,7 @@ The __runner modules__ have been developed for calling SUSE Manager API.
 
 > In order to use the SUSE Manager API the login credentials must be provided in a salt-master config file. e.g [spacewalk.conf](./etc/salt/master.d/spacewalk.conf)
 
-## Debug and test the automation:
+## Debug and Test:
 
 Salt states and modules can be debugged quite well.
 For debugging state execution on the minions use ```salt-minion -l debug``` to see more outputs.
