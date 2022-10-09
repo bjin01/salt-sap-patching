@@ -41,7 +41,7 @@ __Technical prerequisites:__
 
 __Review the [workflow readme](./workflow-README.md) steps.__
 
-## Using this solution:
+## __Using this solution:__
 
 ### Prepare the salt-master configuration:
 Configure SUSE Manager API credentials in a config file in 
@@ -60,7 +60,7 @@ runner_dirs:
   ```
 
 > never modify susemanager.conf file as this will be overwritten by SUSE Manager upgrades. \
-> after adding and modifying salt-master config files salt-master needs to be restarted. \
+> after adding and modifying salt-master config files salt-master service needs to be restarted. \
 ```systemctl restart salt-master```
 
 ### Download and place the salt states, modules, orchestrate files into salt file_roots e.g. /srv/salt
@@ -104,6 +104,8 @@ Below is the content in this repository. Feel free to use other directory and fi
     └── reboot_host.py
 ```
 __Create and define pillar data for the cluster nodes:__
+This pillar data is used to target all cluster systems at once.\
+For instance in [prep_master_node_for_patching.sls](./srv/salt/orchestrate/prep_master_node_for_patching.sls)
 ```
 # cat /srv/pillar/myhana/init.sls 
 hana_cluster1:
@@ -112,11 +114,14 @@ hana_cluster1:
   - hana-3.bo2go.home
 ```
 
-> Synchronize the new modules out to the SAP HANA Cluster nodes: \
+> Synchronize the new modules to the SAP HANA Cluster nodes: \
 ```# salt "hana-*" saltutil.sync_all``` \
+```# salt-run saltutil.sync_runners```
+
 
 ### __Use reactor system:__
-The usage of reactor allows great flexibility to define the patching steps in a highly granular manner.
+The usage of reactor allows great flexibility to define the patching steps in a highly granular manner. The patching workflow depends on reactors. \
+
 
 ```
 # cat /etc/salt/master.d/patchhana.conf 
@@ -188,7 +193,7 @@ check_for_clusterstate_after_maintenance_off_{{ hostname }}:
       - module: start_pacemaker_{{ hostname }}
 ```
 
-## Important grains:
+## __Important grains:__
 This patching automation is designed to patch cluster nodes one after the other. In order to identify the node roles as primary, secondary and diskless node the salt execution module __*bocrm.check_sr_status*__ will autot-detect the cluster nodes and current role based on __crm__ and __SAPHanaSR-showAttr__ outputs. \
 The function will then auto-set grains key value pairs on each SAP HANA and diskless node.
 
@@ -305,7 +310,7 @@ The __runner modules__ have been developed for calling SUSE Manager API to creat
 
 > In order to use the SUSE Manager API the login credentials must be provided in a salt-master config file. e.g [spacewalk.conf](./etc/salt/master.d/spacewalk.conf)
 
-## Debug and Test:
+## __Debug and Test:__
 
 Salt states and modules can be debugged quite well.
 For debugging state execution on the minions use ```salt-minion -l debug``` to see more outputs.
@@ -314,3 +319,6 @@ For salt runner module debugging e.g. [patch_hana.py](./srv/salt/runners/patch_h
 
 Of course ```salt-run state.event pretty=true``` will show the salt events between salt minion and salt master.
 
+## __Automation with other products:__
+Often customers need to upgrade SAP software within maintenance windows. Although those tasks could be achieved by using salt states as well. But large enterprises often use enterprise solutions as SAP LAMA or Automic to build more comprehensive automations. \
+These enterprise solutions integrate with SUSE Manager and salt greatly which could be further utilized to achieve more automation including SAP Software updates.
