@@ -238,12 +238,19 @@ hana-1.bo2go.home:
     hana_secondary:
         - hana-1
 ```
+
+The grains hana_info will be set in the execution module function ```bocrm.check_sr_status```.\
+
+In the state module function ```crmhana.precheck``` the ```hana_info``` grains will be deleted in the if it exists. \
+It is crucial to use ```crmhana.precheck``` and ```bocrm.check_sr_status``` to reset grains values so that the node roles have been identified correctly.
+
+
 #
 #
 
 ## Additional salt execution, state, runner modules
 In order to capture pacemaker cluster runtime information additional salt __execution modules__ have been developed. \
-[bocrm module](./srv/salt/_modules/crmhana.py) \
+[bocrm module](./srv/salt/_modules/crmhana.py)
 
 ```
 # salt "hana*" sys.list_functions bocrm
@@ -299,3 +306,13 @@ The __runner modules__ have been developed for calling SUSE Manager API.
 [reboot_host.py](./srv/salt/runners/reboot_host.py)
 
 > In order to use the SUSE Manager API the login credentials must be provided in a salt-master config file. e.g [spacewalk.conf](./etc/salt/master.d/spacewalk.conf)
+
+## Debug and test the automation:
+
+Salt states and modules can be debugged quite well.
+For debugging state execution on the minions use ```salt-minion -l debug``` to see more outputs.
+
+For salt runner module debugging e.g. [patch_hana.py](./srv/salt/runners/patch_hana.py) start salt-master in debug mode. In the debug output the runner module script's output will be shown.
+
+Of course ```salt-run state.event pretty=true``` will show the salt events between salt minion and salt master.
+
