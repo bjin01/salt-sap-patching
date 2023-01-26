@@ -6,7 +6,8 @@ Salt execution module that interacts with pacemaker SAP HANA Scale-up cluster.
 
 :maintainer:    Bo Jin <bo.jin@suse.com>
 :maturity:      alpha
-:platform:      SLES-for-SAP 12/15
+:platform:      SLES-for-SAP 15SP3 and newer
+:depends:       python: xml, salt, subprocess, json
 
 :configuration: This module requires sle-ha pattern to be installed.
 
@@ -21,6 +22,7 @@ from salt import exceptions
 import salt.utils.path
 import subprocess
 import socket
+import json
 import os
 import re
 import time
@@ -41,7 +43,7 @@ def __virtual__():
 def _get_crm_configure_xml_info():
     ret = dict()
     try:
-        output_crm_configure = subprocess.check_output(['crm', 'configure', 'show', 'xml']
+        output_crm_configure = subprocess.check_output(['cibadmin', '--query']
                         )
     except subprocess.CalledProcessError as e:
         ret["crm_configure_error"] = "Error code: {}, message: {}".format(e.returncode, e.output.decode("utf-8"))
@@ -49,27 +51,153 @@ def _get_crm_configure_xml_info():
         return ret
 
     output_string = output_crm_configure.decode("utf-8")
-
-    with open("/tmp/crm_configure.xml","w+") as myfile:
+    #print("------output_string---------{}".format(output_string))
+    
+    with open("/tmp/crm_configure1.xml","w+") as myfile:
         myfile.write(output_string)
 
-    time.sleep(1)
     ret["crm_configure"] = True
 
     return ret
 
 
 def find_cli_bans():
+    """
+    find_cli_bans func helps to find cli-ban and cli-prefer location constraints and delete them.
+    It will only remove the location constraints if cluster state is idle and the respective resource is not in maintenance mode.
+
+    CLI Example::
+
+        salt '*' cibadmin.find_cli_bans
+    """
+    location_constraints = ["cli-ban", "cli-prefer"]
+    if not bool(__salt__['service.status']("pacemaker")):
+        ret = dict()
+        ret["comment"] = "pacemaker is not running"
+        __context__["retcode"] = 42
+        return ret
+
     ret = dict()
+    ret["Message"] = []
+    found_constraints = 0
     ret_crm_configure = _get_crm_configure_xml_info()    
     if ret_crm_configure['crm_configure']:
         
-        doc = ET.parse("/tmp/crm_configure_xmlout.txt")
+        doc = ET.parse("/tmp/crm_configure1.xml")
         root_doc = doc.getroot()
-        for x in root_doc.findall("./configuration/constraints"):
-            print("-----------location constraints-----------{}".format(x.items()))
+        
+        constraints = root_doc.findall("./configuration/constraints")
+        
+        for s in constraints:
+            for c in s[:]:
+                if c.tag == "rsc_location":
+                    for l in location_constraints:
+                        if re.findall(l, c.attrib['id']):
+                            #ret = _check_rsc_maintenance_state(c.attrib['rsc'])
+                            ret[l] = c.attrib
+                            ret["maintenance"] = {c.attrib['rsc']: _check_rsc_maintenance_state(c.attrib['rsc'])}
+                            ret["cluster_state"] = check_cluster_idle_state()
+                            if ret["maintenance"][c.attrib['rsc']] == False and ret["cluster_state"]["cluster_state"] == "S_IDLE":
+                                #print("----------remove contraint: {}--".format(c.attrib))
+                                s.remove(c)
+                                found_constraints += 1
+                            
+                            if ret["maintenance"][c.attrib['rsc']]:
+                                ret["Message"].append("{} in maintenance, therefore we don't remove contraints: {}.\n".\
+                                    format(c.attrib['rsc'], c.attrib['id']))
+                                __context__["retcode"] = 42
+
+                            if ret["cluster_state"]["cluster_state"] != "S_IDLE":
+                                ret["Message"].append("Cluster state is not IDLE: {}, therefore we don't remove contraints.\n".\
+                                    format(ret["cluster_state"]["cluster_state"]))
+                                __context__["retcode"] = 42    
+
+        if found_constraints > 0:
+            doc.write("/tmp/cib_input.xml")
+            ret["action"] = _reload_cib("/tmp/cib_input.xml")
+        else:
+            ret["Message"].append("Nothing to do")
+            
     return ret
 
+def _reload_cib(file):
+    ret = dict()
+    try:
+        output_cib_replace = subprocess.check_output(['cibadmin', '--replace', "--xml-file", file]
+                        )
+    except subprocess.CalledProcessError as e:
+        if e.returncode == 103:
+            ret["output_cib_replace_error"] = "Error code: {}, message: Update was older than existing configuration".\
+                format(e.returncode)
+            
+        else:
+            ret["output_cib_replace_error"] = "Error code: {}, message: {}".format(e.returncode, e.output.decode('utf-8'))
+        
+        ret["output_cib_replace"] = False
+        __context__["retcode"] = 42
+        return ret
+
+    if output_cib_replace.decode("utf-8") == "":
+        ret["replace_output"] = "Constraints removed."
+    else:
+        ret["replace_output"] = output_cib_replace.decode("utf-8")
+    
+    return ret
+
+
+
+def _get_crmadmin_dc():
+    ret = dict()
+    dc_node = ""
+    try:
+        output_crmadmin = subprocess.check_output(['crmadmin', '-D', '--output-as=xml']
+                        )
+    except subprocess.CalledProcessError as e:
+        ret["output_crmadmin_error"] = "Error code: {}, message: {}".format(e.returncode, e.output.decode("utf-8"))
+        ret["output_crmadmin"] = False
+        __context__["retcode"] = 42
+        return ret
+
+    output_string = output_crmadmin.decode("utf-8")
+    #print("------output_string---------{}".format(output_string))
+    root_doc = ET.fromstring(output_string)
+    #root_doc = doc.getroot()
+    dc = root_doc.findall("./dc")
+
+    for d in dc:
+        dc_node = d.attrib["node_name"]
+        #print("---------dc node: {}----------".format(dc_node))
+    
+    if dc_node != "":
+        try:
+            output_crmadmin_state = subprocess.check_output(['crmadmin', '-S', dc_node, '--output-as=xml']
+                        )
+        except subprocess.CalledProcessError as e:
+            ret["output_crmadmin_state_error"] = "Error code: {}, message: {}".format(e.returncode, e.output.decode("utf-8"))
+            ret["output_crmadmin_state"] = False
+            __context__["retcode"] = 42
+            return ret
+
+        output_string = output_crmadmin_state.decode("utf-8")
+        root_doc = ET.fromstring(output_string)
+        #root_doc = doc.getroot()
+        crmd = root_doc.findall("./crmd")
+
+        for d in crmd:
+            dc_state = d.attrib["state"]
+            #print("---------dc state: {}----------".format(dc_state))
+            ret["cluster_state"] = dc_state
+
+
+    with open("/tmp/crmadmin_output.xml","w+") as myfile:
+        myfile.write(output_string)
+
+    ret["output_crmadmin"] = True
+    return ret
+
+def check_cluster_idle_state():
+    ret = _get_crmadmin_dc()
+    return ret
 
 def _get_crm_mon_xml_info():
     # this function should be called by other functions in this module and generate the crm_mon xml output and write output to a file.
@@ -81,18 +209,37 @@ def _get_crm_mon_xml_info():
     except subprocess.CalledProcessError as e:
         ret["crm_mon_error"] = "Error code: {}, message: {}".format(e.returncode, e.output.decode("utf-8"))
         ret["crm_mon"] = False
+        __context__["retcode"] = 42
         return ret
 
 
     output_string = output_crm_node.decode("utf-8")
 
-    with open("/tmp/xmlout.txt","w") as myfile:
+    with open("/tmp/crm_mon_out.xml","w+") as myfile:
         myfile.write(output_string)
 
-    time.sleep(1)
     ret["crm_mon"] = True
     return ret
-    
+
+def _check_rsc_maintenance_state(rsc_name):
+    ret = dict()
+    ret_crm_mon = _get_crm_mon_xml_info()    
+    if ret_crm_mon['crm_mon']:
+        doc = ET.parse("/tmp/crm_mon_out.xml")
+        root_doc = doc.getroot()
+        for x in root_doc.findall("./resources/resource"):
+            #print("---------x-----{}".format(x))
+            
+            if re.findall(rsc_name, x.attrib["id"]):
+                #print("-----------a {}, maintenance: {}-----------".format(x.attrib["id"], x.attrib["managed"]))
+                if x.attrib["managed"] == "false":
+                    return True
+                else:
+                    return False
+
+
+    return False
+
 def _check_crmsh():
 
     if bool(salt.utils.path.which(CRM_COMMAND)):
