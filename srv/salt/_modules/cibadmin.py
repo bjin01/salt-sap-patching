@@ -195,8 +195,47 @@ def _get_crmadmin_dc():
     ret["output_crmadmin"] = True
     return ret
 
+def _get_crmadmin_dc_ppc64le():
+    ret = dict()
+    dc_node = ""
+    try:
+        output_crmadmin = subprocess.check_output(['crmadmin', '-D']
+                        )
+    except subprocess.CalledProcessError as e:
+        ret["output_crmadmin_error"] = "Error code: {}, message: {}".format(e.returncode, e.output.decode("utf-8"))
+        ret["output_crmadmin"] = False
+        __context__["retcode"] = 42
+        return ret
+
+    output_string = output_crmadmin.decode("utf-8")
+    if output_string != "":
+        dc_node = output_string.split(": ", 1)
+        dc_node = dc_node[1].replace("\n", "")
+        print("--------dc_node------------{}".format(dc_node))
+        try:
+            output_crmadmin_state = subprocess.check_output(['crmadmin', '-S', dc_node]
+                            )
+        except subprocess.CalledProcessError as e:
+            ret["output_crmadmin_state_error"] = "Error code: {}, message: {}".format(e.returncode, e.output.decode("utf-8"))
+            ret["output_crmadmin_state"] = False
+            __context__["retcode"] = 42
+            return ret
+
+        output_clusterstate = output_crmadmin_state.decode("utf-8")
+        
+        #print("------output_clusterstate----------{}".format(output_clusterstate))
+        if re.findall(r'.*S_IDLE.*ok', output_clusterstate):
+            ret["cluster_state"] = "S_IDLE"
+        else:
+            ret["cluster_state"] = output_clusterstate
+
+    return ret
+
 def check_cluster_idle_state():
-    ret = _get_crmadmin_dc()
+    if __salt__['grains.get']("cpuarch") == "ppc64le":
+        ret = _get_crmadmin_dc_ppc64le()
+    else:
+        ret = _get_crmadmin_dc()
     return ret
 
 def _get_crm_mon_xml_info():
