@@ -7,7 +7,8 @@ log = logging.getLogger(__name__)
 
 def get_srvinfo():
     infofile = "/admin/config/srvinfo"
-    info = {}
+    info = dict()
+    info['srvinfo'] = {}
 
     if os.path.isfile(infofile):
         with open(infofile) as f:
@@ -18,11 +19,11 @@ def get_srvinfo():
         keyval_system = []
         if re.findall(r'^INFO_', l):
             keyval_info = l.split("::", 1)
-            info[keyval_info[0]] = keyval_info[1]
+            info['srvinfo'][keyval_info[0]] = keyval_info[1]
         
         if re.findall(r'^SYSTEM_', l):
             keyval_system = l.split("::", 1)
-            info[keyval_system[0]] = keyval_system[1]
+            info['srvinfo'][keyval_system[0]] = keyval_system[1]
         
     return info
 
