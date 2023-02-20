@@ -134,7 +134,7 @@ def _get_session(server):
 
     return client, key
 
-def patch(target_system, **kwargs):
+def patch(target_system=None, groups=None, **kwargs):
     '''
     Call suse manager / uyuni xmlrpc api and schedule a apply_all_patches job for the given salt-minion name
 
@@ -163,12 +163,21 @@ def patch(target_system, **kwargs):
             - target_system: pxesap01.bo2go.home
             - kwarg:
                 delay: 60
+        
+        run_patching:
+          salt.runner:
+            - name: sumapatch.patch 
+            - groups:
+              - P-Basis-suma
+              - testgrp
+            - kwarg:
+                delay: 60
     '''
 
-    errata_id_list = []
     suma_config = _get_suma_configuration()
     server = suma_config["servername"]
-
+    ret = dict()
+    ret["Patching"] = []
     try:
         client, key = _get_session(server)
     except Exception as exc:  # pylint: disable=broad-except
@@ -176,68 +185,103 @@ def patch(target_system, **kwargs):
         log.error(err_msg)
         return {'Error': err_msg}
 
-    try:
-        minion_names = client.saltkey.acceptedList(key)
-        if len(minion_names) != 0:
-            for m in minion_names:
-                if target_system in m:
-                    target_system = m
-                    log.info("------------------ to patch host: {}".format(target_system))
-    except Exception as exc:  # pylint: disable=broad-except
-        err_msg = 'Exception raised trying to find host minion id ({0}): {1}'.format(server, exc)
-        log.error(err_msg)
-        return {'Error': err_msg}
+    if target_system:
+        try:
+            minion_names = client.saltkey.acceptedList(key)
+            if len(minion_names) != 0 and target_system in minion_names:
+                print("patch host: {}".format(target_system))
+                target_system_id = _get_systemid(client, key, target_system)
+                ret1 = _patch_single(client, key, target_system_id, kwargs)
+                ret["Patching"].append(ret1)
+        except Exception as exc:  # pylint: disable=broad-except
+            err_msg = 'Exception raised trying to find host minion id ({0}): {1}'.format(server, exc)
+            log.error(err_msg)
+            ret = {'Error': err_msg}
+    
+    if groups:
+        all_active_minions = []
+        for g in groups:
+            try:
+                active_minions = client.systemgroup.listActiveSystemsInGroup(key, g)
+                all_active_minions += active_minions                
+            except Exception as exc:  # pylint: disable=broad-except
+                err_msg = 'Exception raised trying to get active minion list from group ({0}): {1}'.format(g, exc)
+                log.error(err_msg)
 
+        # print("all act minions: {}".format(all_active_minions))
+        set_res = set(all_active_minions) 
+        all_active_minions = (list(set_res))
+        # print("final active minions unique: {}".format(all_active_minions))
+        for l in all_active_minions:
+            ret1 = _patch_single(client, key, l, kwargs)
+            ret["Patching"].append(ret1)
+    return ret
+
+def _get_systemid(client, key, target_system):
     if target_system != "":
         try:
-            systemid = client.system.getId(key, target_system)
+            getid_ret = client.system.getId(key, target_system)
         except Exception as exc:  # pylint: disable=broad-except
-            err_msg = 'Exception raised when trying to get system ID ({0}): {1}'.format(server, exc)
+            err_msg = 'Exception raised when trying to get {1} all patch ID: {0}'.format(exc, target_system)
             log.error(err_msg)
-            return {'Error': err_msg}
-        
+
+        if getid_ret:
+            id = getid_ret[0]['id']
+            return id
+    return 
+
+def _patch_single(client, key, target_system_id, kwargs):
+    errata_id_list = []
+    if target_system_id:
         try:
-            errata_list = client.system.getRelevantErrata(key, systemid[0]['id'])
+            target_system = client.system.getName(key, target_system_id)
         except Exception as exc:  # pylint: disable=broad-except
-            err_msg = 'Exception raised when trying to get all patch ID ({0}): {1}'.format(server, exc)
+            err_msg = 'Exception raised when trying to get minion name {0}'.format(exc, target_system_id)
             log.error(err_msg)
-            return {'Error': err_msg}
+
+        try:
+            errata_list = client.system.getRelevantErrata(key, target_system_id)
+        except Exception as exc:  # pylint: disable=broad-except
+            err_msg = 'Exception raised when trying to get {1} all patch ID: {0}'.format(exc, target_system_id)
+            log.error(err_msg)
 
         if errata_list and len(errata_list) > 0:
             for x in errata_list:
                 errata_id_list.append(x['id'])
         else:
-            info_msg = 'It looks like the system is fully patched: {0}'.format(server)
+            info_msg = 'It looks like the system is fully patched.'
             log.info(info_msg)
             return {'Info': info_msg}
 
-        if 'delay' in kwargs:
-            delay = kwargs['delay']
-            nowlater = datetime.now() + timedelta(minutes=int(delay))
         
-        if 'schedule' in kwargs:
+        if "delay" in kwargs.keys():
+            delay = kwargs['delay']
+            if int(delay) >= 0:
+                nowlater = datetime.now() + timedelta(minutes=int(delay))
+        
+        if "schedule" in kwargs.keys():
             schedule = kwargs['schedule']
             nowlater = datetime.strptime(schedule, "%H:%M %d-%m-%Y")
         
-        if not kwargs:
+        if len(kwargs) == 0:
             nowlater = datetime.now()
 
         earliest_occurrence = six.moves.xmlrpc_client.DateTime(nowlater)
         try:
-            patch_job = client.system.scheduleApplyErrata(key, int(systemid[0]['id']), errata_id_list, earliest_occurrence, True)
+            patch_job = client.system.scheduleApplyErrata(key, target_system_id, errata_id_list, earliest_occurrence, True)
             if patch_job:
+                ret = dict()
                 local = salt.client.LocalClient()
-                local.cmd(target_system, 'event.send', ['suma/patch/job/id', {"node": target_system, "jobid": patch_job[0]}])
-                log.debug("SUMA Patch job {} created for {}".format(patch_job, target_system))
-                
-
+                local.cmd(target_system['name'], 'event.send', ['suma/patch/job/id', \
+                            {"node": target_system['name'], "jobid": patch_job[0]}])
+                log.debug("SUMA Patch job {} created for {}".format(patch_job, target_system['name']))
+                ret[target_system['name']] = {"Patch Job ID is": patch_job[0], "event send": True}
+                return ret
+            
         except Exception as exc:  # pylint: disable=broad-except
-            err_msg = 'Exception raised when schedule patch job ({0}): {1}. Please double check if there is not already a job scheduled.'.format(server, exc)
+            err_msg = 'Exception raised when schedule patch job: {0}. \
+                Please double check if there is not already a job scheduled: {1}.'.format(exc, target_system['name'])
             log.error(err_msg)
             return {'Error': err_msg}
-
-
-        return {"Patch Job ID is": patch_job, "event send": True}
-    else:
-        return {"Patch Job ID is": "minion host not found. Check your minion host name"}
-    
+ 
+    return
