@@ -25,6 +25,7 @@ master configuration at ``/etc/salt/master`` or ``/etc/salt/master.d/suma_api.co
 from __future__ import absolute_import, print_function, unicode_literals
 
 # Import python libs
+from cryptography.fernet import Fernet
 import atexit
 import logging
 import os
@@ -50,6 +51,15 @@ def __virtual__():
         return False, 'No suma_api configuration found'
     return True
 
+def _decrypt_password(password_encrypted):
+    
+    saltkey = bytes(os.environ.get('SUMAKEY'), encoding='utf-8')
+    
+    fernet = Fernet(saltkey)
+    encmessage = bytes(password_encrypted, encoding='utf-8')
+    pwd = fernet.decrypt(encmessage)
+    
+    return pwd.decode()
 
 def _get_suma_configuration(suma_url=''):
     '''
@@ -62,7 +72,8 @@ def _get_suma_configuration(suma_url=''):
         try:
             for suma_server, service_config in six.iteritems(suma_config):
                 username = service_config.get('username', None)
-                password = service_config.get('password', None)
+                password_encrypted = service_config.get('password', None)
+                password = _decrypt_password(password_encrypted)
                 protocol = service_config.get('protocol', 'https')
 
                 if not username or not password:
@@ -200,7 +211,7 @@ def delete_groups(file):
 def _delete_groups(group):
 
     group = re.sub(r"[\n\t\s]*", "", group)
-    spacewalk_config = _get_spacewalk_configuration()
+    spacewalk_config = _get_suma_configuration()
     server = spacewalk_config["servername"]
     if server != "":
         try:

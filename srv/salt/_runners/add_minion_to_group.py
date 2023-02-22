@@ -29,13 +29,15 @@ from cryptography.fernet import Fernet
 import atexit
 import logging
 import os
-import re
 import salt.client
-
-# Import third party libs
 from salt.ext import six
 
 from datetime import datetime,  timedelta
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    __salt__: Any = None
+    __opts__: Any = None
 
 log = logging.getLogger(__name__)
 
@@ -170,7 +172,11 @@ def _get_grains():
     print("Get grains srvinfo:INFO_MASTERPLAN from each minion")
     for x in online_minions:
         output = __salt__['salt.execute'](x, 'grains.get', ['srvinfo:INFO_MASTERPLAN'])
-        result.append(output)
+        #print("grains out: ", output.get(x, None))
+        if output.get(x, None) == "":
+            print("No masterplan found for: ", x)
+        else:
+            result.append(output)
 
     return result
 
