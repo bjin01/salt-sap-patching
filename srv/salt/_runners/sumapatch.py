@@ -1,4 +1,3 @@
-#!/usr/bin/python3.6
 # -*- coding: utf-8 -*-
 '''
 SUMA api runner
@@ -36,7 +35,6 @@ from salt.ext import six
 from datetime import datetime,  timedelta
 
 from typing import Any, TYPE_CHECKING
-
 if TYPE_CHECKING:
     __salt__: Any = None
     __opts__: Any = None
@@ -64,9 +62,7 @@ def __virtual__():
     return True
 
 def _decrypt_password(password_encrypted):
-    
     saltkey = bytes(os.environ.get('SUMAKEY'), encoding='utf-8')
-    
     fernet = Fernet(saltkey)
     encmessage = bytes(password_encrypted, encoding='utf-8')
     pwd = fernet.decrypt(encmessage)
@@ -225,13 +221,19 @@ def patch(target_system=None, groups=None, **kwargs):
         log.error(err_msg)
         return {'Error': err_msg}
 
+    # here we ensure the minions are really online
+    if "presence_check_timeouts" in kwargs:
+        present_minions = _minion_presence_check(kwargs['presence_check_timeouts']['timeout'],
+                                                 kwargs['presence_check_timeouts']['gather_job_timeout'])
+    else:
+        present_minions = _minion_presence_check()
+
     if target_system:
         try:
-            minion_names = client.saltkey.acceptedList(key)
-            if len(minion_names) != 0 and target_system in minion_names:
-                print("patch host: {}".format(target_system))
+            #minion_names = client.saltkey.acceptedList(key)
+            if target_system in present_minions:
                 target_system_id = _get_systemid(client, key, target_system)
-                ret1 = _patch_single(client, key, target_system_id, kwargs)
+                ret1 = _patch_single(client, key, target_system_id, target_system, kwargs)
                 ret["Patching"].append(ret1)
         except Exception as exc:  # pylint: disable=broad-except
             err_msg = 'Exception raised trying to find host minion id ({0}): {1}'.format(server, exc)
@@ -239,7 +241,6 @@ def patch(target_system=None, groups=None, **kwargs):
             ret[target_system] = {'Error': err_msg}
     
     if groups:
-        
         for g in groups:
             try:
                 active_minions = client.systemgroup.listActiveSystemsInGroup(key, g)
@@ -256,13 +257,24 @@ def patch(target_system=None, groups=None, **kwargs):
         target_system = client.system.getName(key, l)
         all_to_patch_minions[target_system['name']] = target_system['id']
 
+    
+
+    # drop minions from list which are not online according to presence check
+    for minion in list(all_to_patch_minions.keys()):
+        if minion not in present_minions:
+            log.warning("salt-run manage.up query says {} is not online.".format(minion))
+            del all_to_patch_minions[minion]
+
     if 'grains' in kwargs:
         for x, y in kwargs['grains'].items():
             for p in list(all_to_patch_minions.keys()):
                 output_grains = __salt__['salt.execute'](p, 'grains.get', [x])
+                if not output_grains.get(p, None):
+                    continue
                 if not y == output_grains.get(p, None):
+                    print("grains {}: {} for <{}>".format(x, y, p))
                     del all_to_patch_minions[p]
-                    log.info("Remove {} from all_to_patch_minions dictionary due to grains query result: \
+                    log.info("Remove {} from all_to_patch_minions list due to grains query result: \
                              {}: {}".format(p, x, y))
                     
     log.info("final all_to_patch_minions {}".format(all_to_patch_minions))
@@ -275,6 +287,16 @@ def patch(target_system=None, groups=None, **kwargs):
     else:
         _write_logs(ret)
     return ret
+
+def _minion_presence_check(timeout=2, gather_job_timeout=10):
+    print("checking minion presence...")
+    runner = salt.runner.RunnerClient(__opts__)
+    timeout = "timeout={}".format(timeout)
+    gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout)
+    online_minions = runner.cmd('manage.up', [timeout, gather_job_timeout])
+    #print("Online minions: \n{}".format(online_minions))
+    return online_minions
+    
 
 def _write_logs(input, logfile="/var/log/patching/patching.log"):
     now = datetime.now()
