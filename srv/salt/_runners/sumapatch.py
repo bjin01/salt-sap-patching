@@ -57,15 +57,29 @@ def __virtual__():
     Check for suse manager configuration in master config file
     or directory and load runner only if it is specified
     '''
-    if not _get_suma_configuration():
+    if not _suma_configuration():
         return False, 'No suma_api configuration found'
     return True
 
+def _suma_configuration(suma_url=''):
+    '''
+    Verify if suma_api configuration is set otherwise not loading this module.
+    '''
+    if 'suma_api' in __opts__:    
+        return True
+    else:
+        return False
+    
+
 def _decrypt_password(password_encrypted):
-    saltkey = bytes(os.environ.get('SUMAKEY'), encoding='utf-8')
-    fernet = Fernet(saltkey)
-    encmessage = bytes(password_encrypted, encoding='utf-8')
-    pwd = fernet.decrypt(encmessage)
+    if os.environ.get('SUMAKEY') == None: 
+        log.fatal("You don't have ENV SUMAKEY set. Use unencrypted pwd.")
+        return str(password_encrypted)
+    else:    
+        saltkey = bytes(str(os.environ.get('SUMAKEY')), encoding='utf-8')
+        fernet = Fernet(saltkey)
+        encmessage = bytes(str(password_encrypted), encoding='utf-8')
+        pwd = fernet.decrypt(encmessage)
     
     return pwd.decode()
 

@@ -42,6 +42,11 @@ import time
 from salt.ext import six
 
 from datetime import datetime,  timedelta
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    __salt__: Any = None
+    __opts__: Any = None
 
 log = logging.getLogger(__name__)
 
