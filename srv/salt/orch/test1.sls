@@ -7,11 +7,10 @@ run_patching:
     - kwargs:
       delay: 60
       logfile: /var/log/patching/sumapatching.log
+      timeout: 2
+      gather_job_timeout: 8
       grains: 
         no_patch: False
-      presence_check_timeouts:
-        timeout: 2
-        gather_job_timeout: 5
 
 
 

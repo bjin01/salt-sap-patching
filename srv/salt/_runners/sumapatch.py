@@ -206,7 +206,11 @@ def patch(target_system=None, groups=None, **kwargs):
             - kwargs:
                 delay: 60
                 logfile: /var/log/patching/sumapatch.log
-                grains: {"no_patch": False}
+                grains: 
+                  no_patch: False
+                timeout: 2
+                gather_job_timeout: 15
+                
     '''
 
     suma_config = _get_suma_configuration()
@@ -236,9 +240,10 @@ def patch(target_system=None, groups=None, **kwargs):
         return {'Error': err_msg}
 
     # here we ensure the minions are really online
-    if "presence_check_timeouts" in kwargs:
-        present_minions = _minion_presence_check(kwargs['presence_check_timeouts']['timeout'],
-                                                 kwargs['presence_check_timeouts']['gather_job_timeout'])
+    
+    if kwargs.get("timeout") and kwargs.get("gather_job_timeout"):
+        present_minions = _minion_presence_check(timeout=kwargs['timeout'],
+                                                 gather_job_timeout=kwargs['gather_job_timeout'])
     else:
         present_minions = _minion_presence_check()
 
@@ -307,6 +312,7 @@ def _minion_presence_check(timeout=2, gather_job_timeout=10):
     runner = salt.runner.RunnerClient(__opts__)
     timeout = "timeout={}".format(timeout)
     gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout)
+    print("the timeouts {} {}".format(timeout,gather_job_timeout))
     online_minions = runner.cmd('manage.up', [timeout, gather_job_timeout])
     #print("Online minions: \n{}".format(online_minions))
     return online_minions
