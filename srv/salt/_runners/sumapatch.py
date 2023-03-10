@@ -30,6 +30,8 @@ from cryptography.fernet import Fernet
 import atexit
 import logging
 import os
+import requests
+import json
 import salt.client
 from salt.ext import six
 from datetime import datetime,  timedelta
@@ -220,6 +222,20 @@ def patch(target_system=None, groups=None, **kwargs):
     all_active_minions = []
     all_to_patch_minions = {}
 
+    if kwargs.get("jobchecker_timeout"):
+        if kwargs.get('delay'):
+            ret["jobchecker_timeout"] = kwargs["delay"] + kwargs["jobchecker_timeout"]
+            ret["jobstart_delay"] = kwargs["delay"]
+        else:
+            ret["jobchecker_timeout"] = kwargs["jobchecker_timeout"]
+            ret["jobstart_delay"] = 0
+    else:
+        ret["jobchecker_timeout"] = 30
+        if kwargs.get('delay'):
+            ret["jobstart_delay"] = kwargs["delay"]
+        else:
+            ret["jobstart_delay"] = 0
+
     if 'logfile' in kwargs:
         #mylog = logging.getLogger()  # root logger - Good to get it only once.
         for hdlr in log.handlers[:]:  # remove the existing file handlers
@@ -305,7 +321,25 @@ def patch(target_system=None, groups=None, **kwargs):
         _write_logs(ret, logfile=kwargs['logfile'])
     else:
         _write_logs(ret)
+    _send_to_jobcheck(ret)
+   
     return ret
+
+def _send_to_jobcheck(results):
+    
+    import urllib3
+    
+    http = urllib3.PoolManager()
+    url = 'http://localhost:12345/jobchecker'
+    json_object = json.dumps(results, indent = 4)
+    try:
+        response = http.request('POST', url, body=json_object)
+        print(response.data.decode('utf-8'))
+    except Exception as e:
+        log.error("Connecting to jobchecker failed: {}".format(e))
+        print(e)
+    
+    return True
 
 def _minion_presence_check(timeout=2, gather_job_timeout=10):
     print("checking minion presence...")
@@ -370,10 +404,10 @@ def _patch_single(client, key, target_system_id, target_system_name, kwargs):
             for x in errata_list:
                 errata_id_list.append(x['id'])
         else:
-            info_msg = 'It looks like the system is fully patched.'
+            info_msg = '{}: It looks like the system is fully patched.'.format(target_system_name)
             log.info(info_msg)
-            ret[target_system_name] = info_msg
-            return ret
+            #ret["comment"] = info_msg
+            return info_msg
 
         
         if "delay" in kwargs.keys():
