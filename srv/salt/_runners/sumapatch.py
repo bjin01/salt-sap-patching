@@ -321,7 +321,20 @@ def patch(target_system=None, groups=None, **kwargs):
         _write_logs(ret, logfile=kwargs['logfile'])
     else:
         _write_logs(ret)
-    _send_to_jobcheck(ret)
+    
+    # below we remove all elements from list if val not dict
+    if len(ret["Patching"]) > 0:
+        for system in list(ret["Patching"]):
+            if isinstance(system, dict):
+                for key, val in system.items():
+                    if not isinstance(val, dict):
+                        ret["Patching"].remove(system)
+            else:
+                ret["Patching"].remove(system)
+
+    # only call jobchecker if list is greater than 0
+    if len(ret["Patching"]) > 0:
+        _send_to_jobcheck(ret)
    
     return ret
 
