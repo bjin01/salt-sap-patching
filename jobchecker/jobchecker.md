@@ -8,7 +8,8 @@ For security reasons the API endpoint only listen on localhost (127.0.0.1 and po
 API endpoint for POST method:
 ```http://127.0.0.1:12345/jobchecker ```
 
-The dictionary sent to the API has below scheme:
+<details><summary>The dictionary sent to the API has below scheme:</summary>
+
 ```
 {
     "Patching": [
@@ -39,7 +40,7 @@ The dictionary sent to the API has below scheme:
     "jobstart_delay": 5
 }
 ```
-
+</details>
 Tested on: SUSE Manager 4.3 x86 on SLES15SP4 with python v3.6
 
 
