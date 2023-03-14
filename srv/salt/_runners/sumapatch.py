@@ -222,6 +222,11 @@ def patch(target_system=None, groups=None, **kwargs):
     all_active_minions = []
     all_to_patch_minions = {}
 
+    if kwargs.get("jobchecker_emails"):
+        ret["jobchecker_emails"] = []
+        ret["jobchecker_emails"] = kwargs.get("jobchecker_emails")
+        print("jobchecker emails: {}".format(ret["jobchecker_emails"]))
+        
     if kwargs.get("jobchecker_timeout"):
         if kwargs.get('delay'):
             ret["jobchecker_timeout"] = kwargs["delay"] + kwargs["jobchecker_timeout"]
@@ -343,7 +348,7 @@ def _send_to_jobcheck(results):
     import urllib3
     
     http = urllib3.PoolManager()
-    url = 'http://localhost:12345/jobchecker'
+    url = 'http://127.0.0.1:12345/jobchecker'
     json_object = json.dumps(results, indent = 4)
     try:
         response = http.request('POST', url, body=json_object)

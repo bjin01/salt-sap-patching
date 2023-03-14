@@ -87,6 +87,15 @@ class MyRequestHandler(tornado.web.RequestHandler):
         return str(content)
     
     def _send_emails(self, data):
+        if not data["jobchecker_emails"]:
+            log.warning("No jobchecker_emails provided. No emails will be sent.")
+            return True
+        elif len(data["jobchecker_emails"]) == 0:
+            log.warning("No jobchecker_emails provided. No emails will be sent.")
+            return True
+        else:
+            pass
+            
         import smtplib
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
@@ -94,7 +103,7 @@ class MyRequestHandler(tornado.web.RequestHandler):
         # Define your email addresses
         message = MIMEMultipart()
         sender_email = 'susemanager@suma1.bo2go.home'
-        receiver_email = 'bo.jin@jinbo01.com'
+        receiver_email = data["jobchecker_emails"]
         # Convert the dictionary to a string
         content = self.format_html_content(data)
 
@@ -104,7 +113,7 @@ class MyRequestHandler(tornado.web.RequestHandler):
 
         # Set the sender, receiver, and subject of the email
         message['From'] = sender_email
-        message['To'] = receiver_email
+        message['To'] = ", ".join(receiver_email)
         message['Subject'] = 'Jobchecker result'
 
         # Create a SMTP server instance and send the email
@@ -197,6 +206,11 @@ class MyRequestHandler(tornado.web.RequestHandler):
                    "cancelled"]
         jobs = dict()
         
+        if data["jobchecker_emails"]:
+            jobs["jobchecker_emails"] = []
+            if len(data["jobchecker_emails"]) > 0:
+                jobs["jobchecker_emails"] = data["jobchecker_emails"]
+
         for m in methods:
             jobs[m] = []
         try:
@@ -339,5 +353,5 @@ if __name__ == '__main__':
     app = tornado.web.Application([
         (r'/jobchecker', MyRequestHandler),
     ], debug=True, autoreload=False)
-    app.listen(12345)
+    app.listen(12345, "127.0.0.1")
     tornado.ioloop.IOLoop.current().start()

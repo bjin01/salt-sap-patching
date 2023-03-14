@@ -3,32 +3,45 @@
 The jobchecker.py runs as systemd service on SUSE Manager or Uyuni Server.
 It runs indefinitely and provides an API endpoint to receive scheduled job information from salt-runner module [sumapatch](../srv/salt/_runners/sumapatch.py). \
 
+For security reasons the API endpoint only listen on localhost (127.0.0.1 and port 12345). Yes, the port should be made configurable.
+
 API endpoint for POST method:
-```http://localhost:12345/jobchecker ```
+```http://127.0.0.1:12345/jobchecker ```
 
 The dictionary sent to the API has below scheme:
 ```
 {
     "Patching": [
         {
+            "saturn": {
+                "Patch Job ID is": 731,
+                "event send": true
+            }
+        },
+        {
             "pxesap01.bo2go.home": {
-                "Patch Job ID is": 722,
+                "Patch Job ID is": 732,
                 "event send": true
             }
         },
         {
             "pxesap02.bo2go.home": {
-                "Patch Job ID is": 723,
+                "Patch Job ID is": 733,
                 "event send": true
             }
         }
+    ],
+    "jobchecker_emails": [
+        "admin@mycorp.com",
+        "admin2@others.com"
     ],
     "jobchecker_timeout": 25,
     "jobstart_delay": 5
 }
 ```
 
-Tested on: SUSE Manager 4.3 x86 on SLES15SP4
+Tested on: SUSE Manager 4.3 x86 on SLES15SP4 with python v3.6
+
 
 After configured monitoring timeout emails with job status will be sent out.\
 During maintenance windows admins who scheduled patch jobs through salt-runner module sumapatch will be forwarded to jobchecker for further job status monitoring.
@@ -90,18 +103,13 @@ The SUMAKEY will be needed by the salt-runner module which will use it for passw
 ```
 git clone https://github.com/bjin01/salt-sap-patching.git
 cd salt-sap-patching
-mkdir /var/log/patching/
-touch /var/log/patching/patching.log
-chown salt. /var/log/patching/patching.log
-
-cp srv/salt/_runners/sumapatch.py /usr/share/susemanager/modules/runners/
 cp jobchecker/suma-jobchecker.service /etc/systemd/system/suma-jobchecker.service
 systemctl daemon-reload
 cp jobchecker/jobchecker.py /usr/local/suma_jobcheck.py
 systemctl enable suma-jobchecker.service
 systemctl start suma-jobchecker.service
 ```
-Now the jobchecker is running. Log file /var/log/patching/patching.log provides information if job IDs have been sent to the jobchecker API.
+Now the jobchecker is running. Log file ```/var/log/jobchecker.log``` provides information if job IDs have been sent to the jobchecker API.
 
 
 
