@@ -13,7 +13,7 @@ sumapatch is a salt runner module that uses SUSE Manager / [Uyuni](https://www.u
 
 Here is a sample salt orchestrator sls file (salt://orch/test1.sls) to use sumapatch module:
 <details><summary>test1.sls</summary>
-<p>
+
 ```
 run_patching:
   salt.runner:
@@ -33,7 +33,7 @@ run_patching:
       grains: 
         no_patch: False
 ```
-</p>
+
 </details>
 
 ## Explain kwargs:
