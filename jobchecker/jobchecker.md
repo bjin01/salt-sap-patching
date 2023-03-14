@@ -47,7 +47,7 @@ Tested on: SUSE Manager 4.3 x86 on SLES15SP4 with python v3.6
 After configured monitoring timeout emails with job status will be sent out.\
 During maintenance windows admins who scheduled patch jobs through salt-runner module sumapatch will be forwarded to jobchecker for further job status monitoring.
 
-The jobchecker runs every incoming request in an separate thread concurrently. This feature allows admins to sent multiple salt-runner module sumapatch results to the jobchecker.
+The jobchecker runs every incoming HTTP POST request in an separate thread concurrently. This feature allows admins to run multiple salt-runner module sumapatch without to wait for existing job monitor task to finish.
 
 The script uses the same configuration file that [sumapatch](../srv/salt/_runners/sumapatch.py) uses. (Default: [/etc/salt/master.d/spacewalk.conf](../etc/salt/master.d/spacewalk.conf))
 
@@ -57,6 +57,8 @@ Copy the [suma-jobchecker.service](./suma-jobchecker.service) to ```/etc/systemd
 Copy the [jobchecker.py](jobchecker.py) to ```/usr/local/suma_jobcheck.py``` \
 ```systemctl daemon-reload``` \
 
+## Email notification:
+For email notification local smtp will be used. On SLES usually __postfix__ must be configured and running properly in order to send emails to the outter world.
 
 ## __Create configuration file for SUSE Manager API:__
 

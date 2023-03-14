@@ -2,6 +2,8 @@
 
 sumapatch is a salt runner module that uses SUSE Manager / [Uyuni](https://www.uyuni-project.org/) API to schedule patch jobs. 
 
+Tested on: SUSE Manager 4.3 x86 on SLES15SP4 with python v3.6
+
 ## __Features included within the module:__
 * schedule patch jobs based on groups defined in SUSE Manager
 * allows setting delay time for job start 
