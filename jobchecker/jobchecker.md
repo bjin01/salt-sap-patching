@@ -54,7 +54,7 @@ The script uses the same configuration file that [sumapatch](../srv/salt/_runner
 Use the systemd unit file [suma-jobchecker.service](./suma-jobchecker.service)
 
 Copy the [suma-jobchecker.service](./suma-jobchecker.service) to ```/etc/systemd/system/suma-jobchecker.service``` \
-Copy the [jobchecker.py](jobchecker.py) to ```/usr/local/suma_jobcheck.py``` \
+Copy the [jobchecker.py](jobchecker.py) to ```/usr/local/bin/suma_jobcheck.py``` \
 ```systemctl daemon-reload``` \
 
 ## Email notification:
@@ -89,7 +89,7 @@ Requires=taskomatic.service
 Type=simple
 Environment="SUMAKEY=R2bfp223Qsk-pX970Jw8tyJUChT4-e2J8anZ4G4n4IM="
 Restart=always
-ExecStart=/usr/bin/python3.6 /usr/local/suma_jobcheck.py
+ExecStart=/usr/bin/python3.6 /usr/local/bin/suma_jobcheck.py
 
 [Install]
 WantedBy=multi-user.target

@@ -30,7 +30,8 @@ from cryptography.fernet import Fernet
 import atexit
 import logging
 import os
-import requests
+import urllib3
+
 import json
 import salt.client
 from salt.ext import six
@@ -344,18 +345,43 @@ def patch(target_system=None, groups=None, **kwargs):
     return ret
 
 def _send_to_jobcheck(results):
+    uri = 'http://127.0.0.1:12345/jobchecker'
+    body = results
+    headers = {}
+    method = 'POST'
+    timeout = 120.0
+
+    pool = urllib3.PoolManager(timeout=timeout, retries=urllib3.util.retry.Retry(15))
+    headers.update({'Content-Type': 'application/json', 'Connection': 'close', \
+                    'User-Agent': 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 \
+                        (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17'})
+
+    if body is not None and not isinstance(body, str):
+        body = json.dumps(body).encode('utf-8')
+
+    #print('[Request]: %s url=%s, headers=%s, body=%s' % (method, uri, headers, body))
+    if body:
+        headers['Content-Length'] = len(body)
+        try:
+            rsp = pool.request(method, uri, body=body, headers=headers)
+            print('status: {}, {}'.format(rsp.status, rsp.data.decode('utf-8')))
+            return
+        except Exception as e:
+            log.error("Connecting to jobchecker failed: {}".format(e))
+            print(e)
+            return
+        
     
-    import urllib3
-    
-    http = urllib3.PoolManager()
+    """ http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=2.0, read=4.0), retries=10)
     url = 'http://127.0.0.1:12345/jobchecker'
     json_object = json.dumps(results, indent = 4)
+    print(json_object)
     try:
         response = http.request('POST', url, body=json_object)
         print(response.data.decode('utf-8'))
     except Exception as e:
         log.error("Connecting to jobchecker failed: {}".format(e))
-        print(e)
+        print(e) """
     
     return True
 

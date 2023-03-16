@@ -11,6 +11,7 @@ import time
 from datetime import datetime
 import logging
 import atexit
+import asyncio
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -30,12 +31,13 @@ class MyRequestHandler(tornado.web.RequestHandler):
         data = self.request.body
         dict_data = json.loads(data)
         if len(dict_data["Patching"]) > 0:
-            self.write('Jobchecker tasks started')
+            self.write("Jobchecker tasks started. {}".format(datetime.now()))
             future = self.executor.submit(self.monitor, dict_data)
+            print("threads started: {}".format(datetime.now()))
             future.add_done_callback(self.on_task_done)
         else:
-            self.write("No Patching info. Jobchecker not started.")
-            log.info("No Patching info. Jobchecker not started.")
+            self.write("No Patching info. Jobchecker not started.{}".format(datetime.now()))
+            #log.info("No Patching info. Jobchecker not started.")
 
 
     def on_task_done(self, future):
@@ -355,3 +357,4 @@ if __name__ == '__main__':
     ], debug=True, autoreload=False)
     app.listen(12345, "127.0.0.1")
     tornado.ioloop.IOLoop.current().start()
+    
