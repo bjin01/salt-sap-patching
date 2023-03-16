@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 import logging
 import atexit
-import asyncio
+import socket
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -87,6 +87,19 @@ class MyRequestHandler(tornado.web.RequestHandler):
         content = html1 + html_data + html2
 
         return str(content)
+
+    def _get_ip(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0)
+        try:
+            # doesn't even have to be reachable
+            s.connect(('10.254.254.254', 1))
+            IP = s.getsockname()[0]
+        except Exception:
+            IP = '127.0.0.1'
+        finally:
+            s.close()
+        return IP
     
     def _send_emails(self, data):
         if not data["jobchecker_emails"]:
@@ -102,9 +115,11 @@ class MyRequestHandler(tornado.web.RequestHandler):
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
 
+        ip_address = self._get_ip()
+        print(socket.gethostbyaddr(ip_address)[0])
         # Define your email addresses
         message = MIMEMultipart()
-        sender_email = 'susemanager@suma1.bo2go.home'
+        sender_email = 'susemanager@{}'.format(socket.gethostbyaddr(ip_address)[0])
         receiver_email = data["jobchecker_emails"]
         # Convert the dictionary to a string
         content = self.format_html_content(data)
