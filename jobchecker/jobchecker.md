@@ -114,6 +114,7 @@ The SUMAKEY will be needed by the salt-runner module which will use it for passw
 ```
 git clone https://github.com/bjin01/salt-sap-patching.git
 cd salt-sap-patching
+mkdir -p /srv/pillar/sumapatch
 cp jobchecker/suma-jobchecker.service /etc/systemd/system/suma-jobchecker.service
 systemctl daemon-reload
 cp jobchecker/jobchecker.py /usr/local/suma_jobcheck.py
@@ -121,6 +122,21 @@ systemctl enable suma-jobchecker.service
 systemctl start suma-jobchecker.service
 ```
 Now the jobchecker is running. Log file ```/var/log/jobchecker.log``` provides information if job IDs have been sent to the jobchecker API.
+
+## __Completed jobs and reboot as next step__
+If the final job list has completed jobs then the systems of those completed jobs will be written into directory ```/srv/pillar/sumapatch```. \
+The file name has following scheme: \
+completed_20230316141955 - with current time stemp
+
+The content would have similar content: 
+```
+completed_20230317095655:
+- pxesap01.bo2go.home
+- pxesap02.bo2go.home
+- saturn
+```
+The idea is to allow admins to further schedule reboot jobs only for these systems by using salt runner module [sumapatch](../srv/salt/sumapatch.md)
+
 
 
 

@@ -11,7 +11,10 @@ Tested on: SUSE Manager 4.3 x86 on SLES15SP4 with python v3.6
 * writes logs to specified log files
 * hand over scheduled job IDs to [jobchecking](../../jobchecker/jobchecker.md) for job status monitoring
 * no_patch - grains key to be used as exceptional system lock to not patch it within groups
-* Use encrypted SUMA API login password in configuration file 
+* Use encrypted SUMA API login password in configuration file
+* reboot function - schedule reboot jobs via SUSE Manager API.
+* Verify if system really require reboot 
+* If system already has pending reboot jobs then no further reboot jobs will be created.
 
 Here is a sample salt orchestrator sls file (salt://orch/test1.sls) to use sumapatch module:
 <details><summary>test1.sls</summary>
@@ -90,7 +93,7 @@ cp srv/salt/_runners/sumapatch.py /usr/share/susemanager/modules/runners/
 salt-run saltutil.sync_runners
 ```
 
-## __Execute the orchestrator:__
+## __Execute the patch orchestrator:__
 ```salt-run state.orch orch.test1```
 
 ## __Logs:__
@@ -107,4 +110,35 @@ mkdir -p /var/log/patching
 touch /var/log/patching/patching.log
 touch /var/log/patching/sumapatching.log
 chown -R salt. /var/log/patching/
+```
+
+## __Reboot function__
+The suma-jobchecker will write the completed jobs into a file \
+e.g. ```/srv/pillar/sumapatch/completed_20230317095655```
+
+This output file contains a list of systems that completed patch jobs successfully.
+Now admins could use this file as input for ```sumapatch.reboot``` to trigger reboot jobs but via SUSE Manager API.
+
+Another orchestrator sls file could be used to provide all needed parameters as shown below:
+
+```
+/srv/salt/orch # cat reboots.sls 
+run_patching:
+  salt.runner:
+    - name: sumapatch.reboot 
+    - reboot_list: /srv/pillar/sumapatch/completed_20230316141955
+    - kwargs:
+      delay: 15
+```
+* reboot_list - (argument required) file from which the reboot function should read from
+* delay - (kwargs, optional) tells when the reboot job should start from now on with any given delay time in minutes. If not given then default 2 minutes delay will be added so that admins could still cancel the jobs if needed.
+
+### __Reboot conditions:__
+* The reboot function only schedule a reboot job for a system if a reboot is really required, according to SUSE Manager.
+* The reboot function only schedule a reboot job for a system if the system not already have a pending reboot job in the pending job list. Avoid multiple reboot jobs.
+
+## __execute the reboot orchestrator sls__ ##
+If the sls file is called reboots and resides in orch directory:
+```
+salt-run state.orch orch.reboots
 ```
