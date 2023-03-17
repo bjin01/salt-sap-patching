@@ -31,8 +31,9 @@ import atexit
 import logging
 import os
 import urllib3
-
+import yaml
 import json
+import time
 import salt.client
 from salt.ext import six
 from datetime import datetime,  timedelta
@@ -485,3 +486,103 @@ def _patch_single(client, key, target_system_id, target_system_name, kwargs):
             return error_ret
  
     return
+
+def reboot(reboot_list=None, **kwargs):
+    status = ""
+    suma_config = _get_suma_configuration()
+    server = suma_config["servername"]
+    reboot_dict = dict()
+    ret = dict()
+    ret["reboot_jobs"] = {}
+    try:
+        client, key = _get_session(server)
+    except Exception as exc:  # pylint: disable=broad-except
+        err_msg = 'Exception raised when connecting to suse manager server ({0}): {1}'.format(server, exc)
+        log.error(err_msg)
+        return {'Error': err_msg}
+    
+    if kwargs.get("delay"):
+        if int(kwargs['delay']) > 0:
+            delay = kwargs['delay']
+            nowlater = datetime.now() + timedelta(minutes=int(delay))
+        else:
+            nowlater = datetime.now() + timedelta(minutes=2)
+    
+    if not reboot_list == None:
+        # Open the YAML file
+        reboot_file = reboot_list
+        with open(reboot_file, 'r') as file:
+            # Load the YAML data into a dictionary
+            reboot_dict = yaml.safe_load(file)
+
+    already_reboot_pending = _check_existing_reboot_jobs(client, key)
+    reboot_required_list = _reboot_required(client, key)
+
+    for reboot_required in list(reboot_required_list):
+        if reboot_required["id"] in already_reboot_pending:
+            reboot_required_list.remove(reboot_required)
+
+    earliest_occurrence = six.moves.xmlrpc_client.DateTime(nowlater)
+    if len(reboot_dict.keys()) > 0:
+        for i in reboot_dict.keys():
+            if isinstance(reboot_dict[i], list):
+                for system in reboot_dict[i]:
+                    if any(system in d.values() for d in reboot_required_list):
+                        for reboot_required in reboot_required_list: 
+                            if reboot_required["name"] == system:
+                                print("system: {} {}".format(system, earliest_occurrence))
+                                ret["reboot_jobs"][system] = _reboot_single(client, key, reboot_required["id"], earliest_occurrence)
+                    else:
+                        ret["reboot_jobs"][system] = {"comment": "No reboot needed or another reboot job is pending."}
+    return ret
+
+def _reboot_required(client, key):
+    
+    try:
+        result_reboot_required = client.system.listSuggestedReboot(key)
+        #print("result_systemid {}".format(result_systemid))
+        print("reboot list: {}".format(result_reboot_required))
+        return result_reboot_required
+    except Exception as exc:
+        err_msg = 'Exception raised while trying to get reboot required list: ({0})'.format(exc)
+        log.error(err_msg)
+        return {'Error': err_msg}
+
+def _check_existing_reboot_jobs(client, key):
+    pending_reboot_systems = []
+    try:
+        result_inProgressActions = client.schedule.listInProgressActions(key) 
+    except Exception as exc:
+        err_msg = 'Exception raised while trying to get pending job list: ({0})'.format(exc)
+        log.error(err_msg)
+        return {'Error': err_msg}
+
+    for action in list(result_inProgressActions):
+        #print("action: {} {}".format(action["name"], action["type"]))
+        if not "System reboot" in action["name"]:
+            result_inProgressActions.remove(action)
+    
+    for inprogress in result_inProgressActions:
+        try:
+            result_inProgressSystems = client.schedule.listInProgressSystems(key, inprogress["id"])
+            for result in result_inProgressSystems:
+                pending_reboot_systems.append(result["server_id"])
+        except Exception as exc:
+            err_msg = 'Exception raised while trying to get pending jobs in progress systems: ({0})'.format(exc)
+            log.error(err_msg)
+            return {'Error': err_msg}
+
+    return pending_reboot_systems
+
+def _reboot_single(client, key, server_id, earliest_occurrence):
+    try:
+        result_reboot_job = client.system.scheduleReboot(key, server_id, earliest_occurrence)
+    except Exception as exc:
+        log.error("schedule reboot failed. {} {}".format(server_id, exc))
+        return {'Error': exc}
+
+    if int(result_reboot_job) > 0:
+            log.info("SUMA Reboot job {} created for {}".format(result_reboot_job, server_id))
+            #print("SUMA Reboot job {} created for {}".format(result_reboot_job, target_system))
+            return {"Reboot Job ID is": result_reboot_job}
+    

@@ -1,7 +1,15 @@
 # Uyuni / SUSE Manager - jobchecker monitoring scheduled actions and send emails
 
 The jobchecker.py runs as systemd service on SUSE Manager or Uyuni Server.
-It runs indefinitely and provides an API endpoint to receive scheduled job information from salt-runner module [sumapatch](../srv/salt/_runners/sumapatch.py). \
+It runs indefinitely and provides an API endpoint to receive scheduled job information from salt-runner module [sumapatch](../srv/salt/_runners/sumapatch.py).
+
+## __Features:__
+* Use SUSE Manager API to get pending, completed and failed jobs and compare them with given job IDs.
+* The script runs as systemd service
+* The script provides an API for receiving job ID information for further monitoring
+* If jobs are no more pending emails about job status will be sent.
+* For the systems where Job has been completed a file in /srv/pillar/sumapatch will be written for further reboot activities
+
 
 For security reasons the API endpoint only listen on localhost (127.0.0.1 and port 12345). Yes, the port should be made configurable.
 
@@ -55,7 +63,7 @@ Use the systemd unit file [suma-jobchecker.service](./suma-jobchecker.service)
 
 Copy the [suma-jobchecker.service](./suma-jobchecker.service) to ```/etc/systemd/system/suma-jobchecker.service``` \
 Copy the [jobchecker.py](jobchecker.py) to ```/usr/local/bin/suma_jobcheck.py``` \
-```systemctl daemon-reload``` \
+```systemctl daemon-reload```
 
 ## Email notification:
 For email notification local smtp will be used. On SLES usually __postfix__ must be configured and running properly in order to send emails to the outter world.

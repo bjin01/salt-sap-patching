@@ -48,13 +48,35 @@ class MyRequestHandler(tornado.web.RequestHandler):
             # Do something with the result
             log.info("Sending result via email.")
             self._send_emails(result)
+            self.write_reboot_list(result)
         except Exception as e:
             # Handle any exceptions that occurred during the task execution
             log.error("Task failed: {}".format(str(e)))
         finally:
             self.finish()
         return True
+    
+    def write_reboot_list(self, data):
+        now = datetime.now()
+        date_time = now.strftime("%Y%m%d%H%M%S")
+        completed_list = {}
+        completed_entity = "completed_{}".format(date_time)
+        file_path = "/srv/pillar/sumapatch/{}".format(completed_entity)
+        completed_list[completed_entity] = []
+        if len(data["completed"]) > 0:
+                for i in data["completed"]:
+                    for a, _ in i.items():
+                        completed_list[completed_entity].append(a)
+        # convert the dictionary to YAML
+        if len(completed_list[completed_entity]) > 0:
+            yaml_data = yaml.dump(completed_list)
+            # write the YAML data to a file
+            with open(file_path, 'w') as file:
+                file.write(yaml_data)
+                log.info("Completed system list has been written to: {}".format(file_path))
 
+        return
+    
     def format_html_content(self, data):
         methods = ["pending",
                    "completed",
@@ -145,6 +167,8 @@ class MyRequestHandler(tornado.web.RequestHandler):
         #print("data patching {}".format(data["Patching"]))
         log.info(f"thread id : {threading.get_ident()}")
         log.info("Received")
+        if data["jobstart_delay"]:
+            log.info("\tJob starts in {} minutes from now".format(data["jobstart_delay"]))
         for i in list(data["Patching"]):
             if isinstance(i, dict):
                 for a, b in i.items():
