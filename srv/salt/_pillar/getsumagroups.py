@@ -41,7 +41,7 @@ def _suma_configuration(suma_url=''):
     
 
 def _decrypt_password(password_encrypted):
-    print("-------------os env sumakey {}".format(os.environ))
+    
     encrypted_pwd = ""
     if not os.path.exists("/srv/pillar/sumakey.sls"):
         print("No /srv/pillar/sumakey.sls found")
@@ -49,10 +49,10 @@ def _decrypt_password(password_encrypted):
             log.fatal("You don't have ENV SUMAKEY set. Use unencrypted pwd.")
             return str(password_encrypted)
         else:
-            print("----------------os env sumakey found.")
+            
             encrypted_pwd = os.environ.get('SUMAKEY')
     else:
-        print("--------sumakey.sls found.")
+        
         with open("/srv/pillar/sumakey.sls", 'r') as file:
             # Load the YAML data into a dictionary
             sumakey_dict = yaml.safe_load(file)
@@ -156,7 +156,7 @@ def ext_pillar(minion_id, pillar, *args, **kwargs):
 
     my_pillar = {"external_pillar": {}}
     my_pillar["external_pillar"]['sumagroups'] = get_groups(minion_id)
-    log.info("-----------{}-----{}--------------".format(minion_id, my_pillar))
+    #log.info("-----------{}-----{}--------------".format(minion_id, my_pillar))
     return my_pillar
 
 
@@ -164,7 +164,6 @@ def get_groups(minion_id, **kwargs):
     groups = dict()
     suma_config = _get_suma_configuration()
     server = suma_config["servername"]
-    print("server var: {}".format(server))
     if not suma_config:
         raise Exception('No config for \'{0}\' found on master'.format(server))
 
@@ -183,21 +182,20 @@ def get_groups(minion_id, **kwargs):
         
         return {'Error': err_msg}
 
-    try:
-        grouplist = client.system.listGroups(key, systemid[0]['id'])
-    except Exception as exc:  # pylint: disable=broad-except
-        err_msg = 'Exception raised when trying to get system group list ({0}): {1}'.format(server, exc)
-        log.error(err_msg)
-        
-        return {'Error': err_msg}
+    if len(systemid) > 0:
+        try:
+            grouplist = client.system.listGroups(key, systemid[0]['id'])
+        except Exception as exc:  # pylint: disable=broad-except
+            err_msg = 'Exception raised when trying to get system group list ({0}): {1}'.format(server, exc)
+            log.error(err_msg)
+            
+            return {'Error': err_msg}
     
-    if len(grouplist) != 0:
-        for i in grouplist:
-            if i['subscribed'] == 1:
-                groups[i['system_group_name']] = minion_id
-    
-
-    return groups
+        if grouplist:
+            for i in grouplist:
+                if i['subscribed'] == 1:
+                    groups[i['system_group_name']] = minion_id
+        return groups
     
 if __name__ == '__main__':
    output = get_groups("vmsumaprx804p01.svz.admin.ch")

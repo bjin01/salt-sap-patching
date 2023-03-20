@@ -33,7 +33,7 @@ class MyRequestHandler(tornado.web.RequestHandler):
         if len(dict_data["Patching"]) > 0:
             self.write("Jobchecker tasks started. {}".format(datetime.now()))
             future = self.executor.submit(self.monitor, dict_data)
-            print("threads started: {}".format(datetime.now()))
+            print("threads started: {} user: {}".format(datetime.now(), dict_data["user"]))
             future.add_done_callback(self.on_task_done)
         else:
             self.write("No Patching info. Jobchecker not started.{}".format(datetime.now()))
@@ -60,7 +60,10 @@ class MyRequestHandler(tornado.web.RequestHandler):
         now = datetime.now()
         date_time = now.strftime("%Y%m%d%H%M%S")
         completed_list = {}
-        completed_entity = "completed_{}".format(date_time)
+        if data["user"]:
+            completed_entity = "completed_{}_{}".format(data["user"],date_time)
+        else:
+            completed_entity = "completed_{}".format(date_time)
         file_path = "/srv/pillar/sumapatch/{}".format(completed_entity)
         completed_list[completed_entity] = []
         if len(data["completed"]) > 0:
@@ -90,6 +93,8 @@ class MyRequestHandler(tornado.web.RequestHandler):
                 <p style='text-align: center';>Reported by Jobchecker.</p><br><br>'''
         
         html_data = "<br>"
+        if data["user"]:
+            html_data += "<p><strong><font size='+6'>User: {}</font></strong></p>".format(data["user"])
         for method in methods:
             if "failed" == method:
                 html_data += "<p style='color:red;'><strong><font size='+2'>{}:</font></strong></p>".format(method)
@@ -165,7 +170,7 @@ class MyRequestHandler(tornado.web.RequestHandler):
         # This method is executed in a separate thread
 
         #print("data patching {}".format(data["Patching"]))
-        log.info(f"thread id : {threading.get_ident()}")
+        log.info("thread id : {}, user: {}".format(threading.get_ident(),data["user"]))
         log.info("Received")
         if data["jobstart_delay"]:
             log.info("\tJob starts in {} minutes from now".format(data["jobstart_delay"]))
@@ -251,6 +256,9 @@ class MyRequestHandler(tornado.web.RequestHandler):
             jobs["jobchecker_emails"] = []
             if len(data["jobchecker_emails"]) > 0:
                 jobs["jobchecker_emails"] = data["jobchecker_emails"]
+        
+        if data["user"]:
+            jobs["user"] = data["user"]
 
         for m in methods:
             jobs[m] = []

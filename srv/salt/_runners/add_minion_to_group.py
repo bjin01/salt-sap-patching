@@ -64,14 +64,31 @@ def _suma_configuration(suma_url=''):
         return False
 
 def _decrypt_password(password_encrypted):
-    if os.environ.get('SUMAKEY') == None: 
-        log.fatal("You don't have ENV SUMAKEY set. Use unencrypted pwd.")
-        return str(password_encrypted)
-    else:    
-        saltkey = bytes(str(os.environ.get('SUMAKEY')), encoding='utf-8')
+    
+    encrypted_pwd = ""
+    if not os.path.exists("/srv/pillar/sumakey.sls"):
+        print("No /srv/pillar/sumakey.sls found")
+        if os.environ.get('SUMAKEY') == None: 
+            log.fatal("You don't have ENV SUMAKEY set. Use unencrypted pwd.")
+            return str(password_encrypted)
+        else:
+            
+            encrypted_pwd = os.environ.get('SUMAKEY')
+    else:
+        
+        with open("/srv/pillar/sumakey.sls", 'r') as file:
+            # Load the YAML data into a dictionary
+            sumakey_dict = yaml.safe_load(file)
+            encrypted_pwd = sumakey_dict["SUMAKEY"]
+
+    if not encrypted_pwd == "":
+        saltkey = bytes(str(encrypted_pwd), encoding='utf-8')
         fernet = Fernet(saltkey)
         encmessage = bytes(str(password_encrypted), encoding='utf-8')
         pwd = fernet.decrypt(encmessage)
+    else:
+        log.fatal("encrypted_pwd is empty. Use unencrypted pwd.")
+        return str(password_encrypted)        
     
     return pwd.decode()
 
