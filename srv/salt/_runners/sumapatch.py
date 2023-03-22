@@ -188,6 +188,18 @@ def _get_session(server):
 
     return client, key
 
+def _get_grains_info(minion_list):
+    grains_info = []
+    local = salt.client.LocalClient()
+    #print("minion_list: {}".format(list(minion_list)))
+    _ = local.cmd_batch(list(minion_list), 'saltutil.refresh_grains', tgt_type="list", batch='10%')
+    ret = local.cmd_batch(list(minion_list), 'grains.get', ["srvinfo:INFO_MASTERPLAN"], tgt_type="list", batch='10%')
+    for result in ret:
+        grains_info.append(result)
+        #print("MASTERPLAN: {}".format(grains_info))
+    #print("entire dict grains_info {}".format(grains_info))
+    return grains_info
+
 def patch(target_system=None, groups=None, **kwargs):
     '''
     Call suse manager / uyuni xmlrpc api and schedule a apply_all_patches job for the given salt-minion name
@@ -239,12 +251,14 @@ def patch(target_system=None, groups=None, **kwargs):
     server = suma_config["servername"]
     ret = dict()
     ret["Patching"] = []
-    all_active_minions = []
+    all_systems_in_groups = []
     all_to_patch_minions = {}
+    offline_minions = []
 
-    result = subprocess.check_output(["logname"], universal_newlines=True)
-    print("logname output: {}".format(result))
-    ret["user"] = result
+    result = subprocess.check_output(["logname"])
+    print("logname output: {}".format(result.decode('utf-8').replace('\n', '')))
+    log.info("logname output: {}".format(result.decode('utf-8').replace('\n', '')))
+    ret["user"] = result.decode('utf-8').replace('\n', '')
 
     if kwargs.get("jobchecker_emails"):
         ret["jobchecker_emails"] = []
@@ -295,39 +309,50 @@ def patch(target_system=None, groups=None, **kwargs):
     if target_system:
         try:
             #minion_names = client.saltkey.acceptedList(key)
-            if target_system in present_minions:
+            if target_system in list(present_minions):
+                masterplan_list = _get_grains_info([target_system])
+                kwargs["masterplan_list"] = masterplan_list
                 target_system_id = _get_systemid(client, key, target_system)
                 ret1 = _patch_single(client, key, target_system_id, target_system, kwargs)
                 ret["Patching"].append(ret1)
+                present_minions.remove(target_system)
+                print("present minions {}".format(present_minions))
         except Exception as exc:  # pylint: disable=broad-except
-            err_msg = 'Exception raised trying to find host minion id ({0}): {1}'.format(server, exc)
+            err_msg = 'Exception raised trying to find host minion id ({0}): {1}'.format(target_system, exc)
             log.error(err_msg)
             ret[target_system] = {'Error': err_msg}
     
     if groups:
         for g in groups:
             try:
-                active_minions = client.systemgroup.listActiveSystemsInGroup(key, g)
-                all_active_minions += active_minions                
+                systems_in_groups = client.systemgroup.listSystemsMinimal(key, g)
+                all_systems_in_groups += systems_in_groups              
             except Exception as exc:  # pylint: disable=broad-except
                 err_msg = 'Exception raised trying to get active minion list from group ({0}): {1}'.format(g, exc)
                 log.error(err_msg)
 
-        # print("all act minions: {}".format(all_active_minions))
-        set_res = set(all_active_minions) 
-        all_active_minions = (list(set_res))
-        # print("final active minions unique: {}".format(all_active_minions))
-    for l in all_active_minions:
-        target_system = client.system.getName(key, l)
-        all_to_patch_minions[target_system['name']] = target_system['id']
-
+    if len(all_systems_in_groups) > 0:
+        for s in list(all_systems_in_groups):
+            if target_system == s["name"]:
+                all_systems_in_groups.remove(s)
+                continue
+            if not s["name"] in present_minions:
+                offline_minions.append(s["name"])
+                all_systems_in_groups.remove(s)
+                log.warning("salt-run manage.up query says {} is not online.".format(s["name"]))
+                continue
+            else:
+                all_to_patch_minions[s["name"]] = s['id']
+    else:
+        ret["comment"] = "No minion in SUMA groups found. Exit."
+        return ret
     
+    ret.update({"offline_minions": offline_minions})
 
-    # drop minions from list which are not online according to presence check
-    for minion in list(all_to_patch_minions.keys()):
-        if minion not in present_minions:
-            log.warning("salt-run manage.up query says {} is not online.".format(minion))
-            del all_to_patch_minions[minion]
+    if len(all_to_patch_minions.keys()) > 0:
+        masterplan_list = _get_grains_info(all_to_patch_minions.keys())
+        kwargs["masterplan_list"] = masterplan_list
+        #print("masterplans: {}".format(kwargs["masterplan_list"]))
 
     if 'grains' in kwargs:
         for x, y in kwargs['grains'].items():
@@ -351,6 +376,7 @@ def patch(target_system=None, groups=None, **kwargs):
     else:
         _write_logs(ret)
     
+    #print("ret[Patching]: {}".format(ret["Patching"]))
     # below we remove all elements from list if val not dict
     if len(ret["Patching"]) > 0:
         for system in list(ret["Patching"]):
@@ -358,13 +384,16 @@ def patch(target_system=None, groups=None, **kwargs):
                 for key, val in system.items():
                     if not isinstance(val, dict):
                         ret["Patching"].remove(system)
+                    if not "Patch Job ID is" in val.keys():
+                        ret["Patching"].remove(system)
             else:
                 ret["Patching"].remove(system)
 
     # only call jobchecker if list is greater than 0
     if len(ret["Patching"]) > 0:
         _send_to_jobcheck(ret)
-   
+    else:
+        log.warning("No patch jobs scheduled at all, not calling jobchecker. Exit")
     return ret
 
 def _send_to_jobcheck(results):
@@ -393,18 +422,6 @@ def _send_to_jobcheck(results):
             log.error("Connecting to jobchecker failed: {}".format(e))
             print(e)
             return
-        
-    
-    """ http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=2.0, read=4.0), retries=10)
-    url = 'http://127.0.0.1:12345/jobchecker'
-    json_object = json.dumps(results, indent = 4)
-    print(json_object)
-    try:
-        response = http.request('POST', url, body=json_object)
-        print(response.data.decode('utf-8'))
-    except Exception as e:
-        log.error("Connecting to jobchecker failed: {}".format(e))
-        print(e) """
     
     return True
 
@@ -414,8 +431,7 @@ def _minion_presence_check(timeout=2, gather_job_timeout=10):
     timeout = "timeout={}".format(timeout)
     gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout)
     print("the timeouts {} {}".format(timeout,gather_job_timeout))
-    online_minions = runner.cmd('manage.up', [timeout, gather_job_timeout])
-    #print("Online minions: \n{}".format(online_minions))
+    online_minions = runner.cmd('manage.up', [timeout, gather_job_timeout], print_event=False)
     return online_minions
     
 
@@ -445,7 +461,7 @@ def _get_systemid(client, key, target_system):
         try:
             getid_ret = client.system.getId(key, target_system)
         except Exception as exc:  # pylint: disable=broad-except
-            err_msg = 'Exception raised when trying to get {1} all patch ID: {0}'.format(exc, target_system)
+            err_msg = 'Exception raised when trying to get {1} system ID: {0}'.format(exc, target_system)
             log.error(err_msg)
 
         if getid_ret:
@@ -457,15 +473,23 @@ def _patch_single(client, key, target_system_id, target_system_name, kwargs):
     errata_id_list = []
     error_ret = dict()
     ret = dict()
-    if target_system_id:
+    ret[target_system_name] = dict()
+    if "masterplan_list" in kwargs.keys():
+        if len(kwargs["masterplan_list"]) > 0:
+            for l in kwargs["masterplan_list"]:
+                if isinstance(l, dict):
+                    for name, masterplan in l.items():
+                        if name == target_system_name:
+                            ret[target_system_name].update({"masterplan": masterplan})
 
+    if target_system_id:
         try:
             errata_list = client.system.getRelevantErrata(key, target_system_id)
         except Exception as exc:  # pylint: disable=broad-except
             err_msg = 'Exception raised when trying to get {1} all patch ID: {0}'.format(exc, target_system_id)
             log.error(err_msg)
-            error_ret[target_system_name] = err_msg
-            return error_ret
+            ret[target_system_name].update({"error_message": err_msg})
+            return ret
 
         if errata_list and len(errata_list) > 0:
             for x in errata_list:
@@ -473,8 +497,8 @@ def _patch_single(client, key, target_system_id, target_system_name, kwargs):
         else:
             info_msg = '{}: It looks like the system is fully patched.'.format(target_system_name)
             log.info(info_msg)
-            #ret["comment"] = info_msg
-            return info_msg
+            ret[target_system_name].update({"info_message": info_msg})
+            return ret
 
         
         if "delay" in kwargs.keys():
@@ -496,18 +520,18 @@ def _patch_single(client, key, target_system_id, target_system_name, kwargs):
                 local = salt.client.LocalClient()
                 local.cmd(target_system_name, 'event.send', ['suma/patch/job/id', \
                             {"node": target_system_name, "jobid": patch_job[0]}])
-                log.info("SUMA Patch job {} created for {}".format(patch_job, target_system_name))
-                ret[target_system_name] = {"Patch Job ID is": patch_job[0], "event send": True}
+                log.info("SUMA Patch job {} created for {}".format(patch_job, target_system_name))     
+                ret[target_system_name].update({"Patch Job ID is": patch_job[0], "event send": True})
                 return ret
             
         except Exception as exc:  # pylint: disable=broad-except
             err_msg = 'Exception raised when schedule patch job: {0}. \
                 Please double check if there is not already a job scheduled: {1}.'.format(exc, target_system_name)
             log.debug(err_msg)
-            error_ret[target_system_name] = err_msg
-            return error_ret
+            ret[target_system_name].update({"error_message": err_msg})
+            return ret
  
-    return
+    return ret
 
 def reboot(reboot_list=None, **kwargs):
     status = ""
@@ -552,7 +576,6 @@ def reboot(reboot_list=None, **kwargs):
                     if any(system in d.values() for d in reboot_required_list):
                         for reboot_required in reboot_required_list: 
                             if reboot_required["name"] == system:
-                                print("system: {} {}".format(system, earliest_occurrence))
                                 ret["reboot_jobs"][system] = _reboot_single(client, key, reboot_required["id"], earliest_occurrence)
                     else:
                         ret["reboot_jobs"][system] = {"comment": "No reboot needed or another reboot job is pending."}

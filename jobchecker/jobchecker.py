@@ -57,14 +57,10 @@ class MyRequestHandler(tornado.web.RequestHandler):
         return True
     
     def write_reboot_list(self, data):
-        now = datetime.now()
-        date_time = now.strftime("%Y%m%d%H%M%S")
+
         completed_list = {}
-        if data["user"]:
-            completed_entity = "completed_{}_{}".format(data["user"],date_time)
-        else:
-            completed_entity = "completed_{}".format(date_time)
-        file_path = "/srv/pillar/sumapatch/{}".format(completed_entity)
+        completed_entity = data["reboot_yaml_filename"]
+        file_path = "/srv/pillar/sumapatch/{}".format(data["reboot_yaml_filename"])
         completed_list[completed_entity] = []
         if len(data["completed"]) > 0:
                 for i in data["completed"]:
@@ -93,20 +89,30 @@ class MyRequestHandler(tornado.web.RequestHandler):
                 <p style='text-align: center';>Reported by Jobchecker.</p><br><br>'''
         
         html_data = "<br>"
-        if data["user"]:
+        if "jobcheck_thread_id" in data.keys():
+            html_data += "<p><strong>Jobcheck Thread ID: {}</strong></p>".format(data["jobcheck_thread_id"])
+        if "user" in data.keys():
             html_data += "<p><strong><font size='+6'>User: {}</font></strong></p>".format(data["user"])
         for method in methods:
             if "failed" == method:
                 html_data += "<p style='color:red;'><strong><font size='+2'>{}:</font></strong></p>".format(method)
             elif "completed" == method:
                 html_data += "<p style='color:green;'><strong><font size='+2'>{}:</font></strong></p>".format(method)
+                if "reboot_yaml_filename" in data.keys():
+                    html_data += "<p><strong>Consult this file for next reboot step: /srv/pillar/sumapatch/{}</strong></p>".format(data["reboot_yaml_filename"])
             else:
                 html_data += "<p><strong><font size='+2'>{}:</font></strong></p>".format(method)
             if len(data[method]) > 0:
                 for i in data[method]:
                     for a, b in i.items():
-                        html_data += '<p><span style="margin-left: 20px;">{}: {}</span></p>'.format(a, b)
+                        val_text = "Job-ID: {} --- MASTERPLAN: {}".format(b["JobID"], b["MASTERPLAN"])
+                        html_data += '<p><span style="margin-left: 20px;">{}: {}</span></p>'.format(a, val_text)
             html_data += "<br>"
+        if "offline_minions" in data.keys():
+            html_data += "<p style='color:red;'><strong><font size='+2'>{}:</font></strong></p>".format("offline_minions")
+            for off in data["offline_minions"]:
+                html_data += '<p><span style="margin-left: 20px;">{}</span></p>'.format(off)
+        html_data += "<br>"
         html2 = '''
         </body>
         </html>
@@ -171,6 +177,7 @@ class MyRequestHandler(tornado.web.RequestHandler):
 
         #print("data patching {}".format(data["Patching"]))
         log.info("thread id : {}, user: {}".format(threading.get_ident(),data["user"]))
+        data.update({"jobcheck_thread_id": threading.get_ident()})
         log.info("Received")
         if data["jobstart_delay"]:
             log.info("\tJob starts in {} minutes from now".format(data["jobstart_delay"]))
@@ -252,13 +259,19 @@ class MyRequestHandler(tornado.web.RequestHandler):
                    "cancelled"]
         jobs = dict()
         
-        if data["jobchecker_emails"]:
+        if "jobchecker_emails" in data.keys():
+            if "jobcheck_thread_id" in data.keys():
+                jobs["jobcheck_thread_id"] = data["jobcheck_thread_id"]
             jobs["jobchecker_emails"] = []
             if len(data["jobchecker_emails"]) > 0:
                 jobs["jobchecker_emails"] = data["jobchecker_emails"]
         
-        if data["user"]:
+        if "user" in data.keys():
             jobs["user"] = data["user"]
+
+        if "offline_minions" in data.keys():
+            jobs["offline_minions"] = []
+            jobs.update({"offline_minions": data["offline_minions"]})
 
         for m in methods:
             jobs[m] = []
@@ -290,7 +303,7 @@ class MyRequestHandler(tornado.web.RequestHandler):
                             if b["Patch Job ID is"] == job["id"]:
                                 print("pending: {} - Job ID {}: {}".format(a, job["id"], job["name"]))
                                 temp = {}
-                                temp[a] = job["id"]                                
+                                temp[a] = {"JobID": job["id"], "MASTERPLAN": b["masterplan"]}                                
                                 jobs["pending"].append(temp)
 
         
@@ -302,8 +315,9 @@ class MyRequestHandler(tornado.web.RequestHandler):
                             if b["Patch Job ID is"] == job["id"]:
                                 print("completed: {} - Job ID {}: {}".format(a, job["id"], job["name"]))
                                 temp = {}
-                                temp[a] = job["id"]
+                                temp[a] = {"JobID": job["id"], "MASTERPLAN": b["masterplan"]}
                                 jobs["completed"].append(temp)
+                                jobs["reboot_yaml_filename"] = self._set_completed_list_filename(data)
         
         if failed_jobs:
             for job in failed_jobs:
@@ -313,7 +327,7 @@ class MyRequestHandler(tornado.web.RequestHandler):
                             if b["Patch Job ID is"] == job["id"]:
                                 print("failed: {} - Job ID {}: {}".format(a, job["id"], job["name"]))
                                 temp = {}
-                                temp[a] = job["id"]
+                                temp[a] = {"JobID": job["id"], "MASTERPLAN": b["masterplan"]}
                                 jobs["failed"].append(temp)
         
         if len(jobs["pending"]) == 0 and len(jobs["completed"]) == 0 and len(jobs["failed"]) == 0:
@@ -321,10 +335,21 @@ class MyRequestHandler(tornado.web.RequestHandler):
                     if isinstance(j, dict):
                         for a, b in j.items():
                             temp = {}
-                            temp[a] = b["Patch Job ID is"]
+                            temp[a] = {"JobID": b["Patch Job ID is"], "MASTERPLAN": b["masterplan"]}
                             jobs["cancelled"].append(temp)
         return jobs
     
+    def _set_completed_list_filename(self, data):
+        now = datetime.now()
+        date_time = now.strftime("%Y%m%d%H%M%S")
+        if data["user"]:
+            log.info("user: {}, date_time: {}".format(data["user"],date_time))
+            completed_entity = "completed_{}_{}".format(data["user"],date_time)
+            log.info("completed_entity {}".format(completed_entity))
+        else:
+            completed_entity = "completed_{}".format(date_time)
+        return completed_entity
+
     def _get_suma_configuration(self):
         with open("/etc/salt/master.d/spacewalk.conf", "r") as yaml_file:
             yaml_content = yaml_file.read()
