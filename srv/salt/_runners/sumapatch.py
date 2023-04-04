@@ -222,14 +222,6 @@ def patch(target_system=None, groups=None, **kwargs):
         salt-run state.orch orch.patch
 
     .. code-block:: yaml
-
-        run_patching:
-          salt.runner:
-            - name: sumapatch.patch 
-            - target_system: pxesap01.bo2go.home
-            - kwarg:
-                delay: 60
-                logfile: /var/log/patching/sumapatch.log
         
         run_patching:
           salt.runner:
@@ -240,10 +232,15 @@ def patch(target_system=None, groups=None, **kwargs):
             - kwargs:
                 delay: 60
                 logfile: /var/log/patching/sumapatch.log
+                t7user: t7udp
                 grains: 
                   no_patch: False
                 timeout: 2
                 gather_job_timeout: 15
+                jobchecker_timeout: 20
+                jobchecker_emails:
+                  - abc@example.com
+                  - xyz@example.com
                 
     '''
 
@@ -278,6 +275,11 @@ def patch(target_system=None, groups=None, **kwargs):
             ret["jobstart_delay"] = kwargs["delay"]
         else:
             ret["jobstart_delay"] = 0
+    
+    if kwargs.get("t7user"):
+        ret["t7user"] = kwargs.get("t7user")
+    else:
+        ret["t7user"] = kwargs.get("unknown")
 
     if 'logfile' in kwargs:
         #mylog = logging.getLogger()  # root logger - Good to get it only once.
