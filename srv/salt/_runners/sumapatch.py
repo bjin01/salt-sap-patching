@@ -253,7 +253,7 @@ def patch(target_system=None, groups=None, **kwargs):
     offline_minions = []
 
     result = subprocess.check_output(["logname"])
-    print("logname output: {}".format(result.decode('utf-8').replace('\n', '')))
+    #print("logname output: {}".format(result.decode('utf-8').replace('\n', '')))
     log.info("logname output: {}".format(result.decode('utf-8').replace('\n', '')))
     ret["user"] = result.decode('utf-8').replace('\n', '')
 

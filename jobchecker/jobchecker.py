@@ -33,7 +33,7 @@ class MyRequestHandler(tornado.web.RequestHandler):
         if len(dict_data["Patching"]) > 0:
             self.write("Jobchecker tasks started. {}".format(datetime.now()))
             future = self.executor.submit(self.monitor, dict_data)
-            print("threads started: {} user: {}".format(datetime.now(), dict_data["t7user"]))
+            print("threads started: {} t7user: {}".format(datetime.now(), dict_data["t7user"]))
             future.add_done_callback(self.on_task_done)
         else:
             self.write("No Patching info. Jobchecker not started.{}".format(datetime.now()))
@@ -91,8 +91,8 @@ class MyRequestHandler(tornado.web.RequestHandler):
         html_data = "<br>"
         if "jobcheck_thread_id" in data.keys():
             html_data += "<p><strong>Jobcheck Thread ID: {}</strong></p>".format(data["jobcheck_thread_id"])
-        if "user" in data.keys():
-            html_data += "<p><strong><font size='+6'>User: {}</font></strong></p>".format(data["user"])
+        if "t7user" in data.keys():
+            html_data += "<p><strong><font size='+6'>t7user: {}</font></strong></p>".format(data["t7user"])
         for method in methods:
             if "failed" == method:
                 html_data += "<p style='color:red;'><strong><font size='+2'>{}:</font></strong></p>".format(method)
@@ -267,7 +267,7 @@ class MyRequestHandler(tornado.web.RequestHandler):
                 jobs["jobchecker_emails"] = data["jobchecker_emails"]
         
         if "t7user" in data.keys():
-            jobs["user"] = data["t7user"]
+            jobs["t7user"] = data["t7user"]
 
         if "offline_minions" in data.keys():
             jobs["offline_minions"] = []
@@ -343,7 +343,7 @@ class MyRequestHandler(tornado.web.RequestHandler):
         now = datetime.now()
         date_time = now.strftime("%Y%m%d%H%M%S")
         if data["t7user"]:
-            log.info("user: {}, date_time: {}".format(data["t7user"],date_time))
+            log.info("t7user: {}, date_time: {}".format(data["t7user"],date_time))
             completed_entity = "completed_{}_{}".format(data["t7user"],date_time)
             log.info("completed_entity {}".format(completed_entity))
         else:
