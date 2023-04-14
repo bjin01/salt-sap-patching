@@ -209,6 +209,8 @@ def _normalize_data(result):
                 if b != "":
                     groups.append(b)
                     ret[b] = []
+                
+    print(ret)
 
     for system in result:
         if isinstance(system, dict):
