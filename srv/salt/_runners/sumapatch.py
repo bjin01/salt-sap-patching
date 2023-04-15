@@ -188,11 +188,65 @@ def _get_session(server):
 
     return client, key
 
+def prep_patching(minion_list):
+    grains_info = []
+    minion_list_without_poor_size = []
+    minion_list_with_poor_size = []
+    local = salt.client.LocalClient()
+    #print("minion_list: {}".format(list(minion_list)))
+    ret_sync = []
+    print("sync grains files to minions.")
+    ret1 = local.cmd_batch(list(minion_list), 'saltutil.sync_grains', tgt_type="list", batch='10%')
+    for result in ret1:
+        ret_sync.append(result)
+        ret_sync.remove(result)
+    #print("ret_sync {}".format(ret_sync))
+
+    ret_refresh = []
+    print("refresh grains on minions.")
+    ret2 = local.cmd_batch(list(minion_list), 'saltutil.refresh_grains', tgt_type="list", batch='10%')
+    for result in ret2:
+        ret_refresh.append(result)
+        ret_refresh.remove(result)
+    #print("ret_refresh {}".format(ret_refresh))
+
+    print("get btrfs grains on minions.")
+    ret = local.cmd_batch(list(minion_list), 'grains.get', ["btrfs:for_patching"], tgt_type="list", batch='10%')
+    for result in ret:
+        grains_info.append(result)
+        if isinstance(result, dict):
+            for a, b in result.items():
+                if b != "" or b == "ok":
+                    minion_list_without_poor_size.append(a)
+                if b == "no":
+                    minion_list_with_poor_size.append(a)
+
+    print("rebuild rpm DB.")
+    ret_rpm = []
+    ret_rpm_rebuild = local.cmd_iter_no_block(list(minion_list), 'cmd.run', ["rpm --rebuilddb"], tgt_type="list")
+    for i in ret_rpm_rebuild:
+        #print(i)
+        ret_rpm.append(i)
+        ret_rpm.remove(i)
+    
+    print("stop ds_agent.service")
+    ret_stop_svc = []
+    ret_stop_service = local.cmd_iter_no_block(list(minion_list), 'service.stop', ["postfix.service", "no_block=True"], tgt_type="list")
+    for i in ret_stop_service:
+        #print(i)
+        ret_stop_svc.append(i)
+        ret_stop_svc.remove(i)
+    
+    print("entire minion_list_without_poor_size {}".format(minion_list_without_poor_size))
+    print("entire minion_list_with_poor_size {}".format(minion_list_with_poor_size))
+    return minion_list_without_poor_size, minion_list_with_poor_size
+
 def _get_grains_info(minion_list):
     grains_info = []
     local = salt.client.LocalClient()
     #print("minion_list: {}".format(list(minion_list)))
-    _ = local.cmd_batch(list(minion_list), 'saltutil.refresh_grains', tgt_type="list", batch='10%')
+    #_ = local.cmd_batch(list(minion_list), 'saltutil.refresh_grains', tgt_type="list", batch='10%')
+    minion_list, _ = prep_patching(minion_list)
     ret = local.cmd_batch(list(minion_list), 'grains.get', ["srvinfo:INFO_MASTERPLAN"], tgt_type="list", batch='10%')
     for result in ret:
         grains_info.append(result)
@@ -359,8 +413,10 @@ def patch(target_system=None, groups=None, **kwargs):
     if 'grains' in kwargs:
         for x, y in kwargs['grains'].items():
             for p in list(all_to_patch_minions.keys()):
+                print("all_to_patch_minions.keys {}".format(p))
                 output_grains = __salt__['salt.execute'](p, 'grains.get', [x])
                 if not output_grains.get(p, None):
+                    print("skip {}".format(p))
                     continue
                 if not y == output_grains.get(p, None):
                     print("grains {}: {} for <{}>".format(x, y, p))
@@ -369,9 +425,9 @@ def patch(target_system=None, groups=None, **kwargs):
                              {}: {}".format(p, x, y))
                     
     log.info("final all_to_patch_minions {}".format(all_to_patch_minions))
-    for minion_name, systemid in all_to_patch_minions.items():
+    """ for minion_name, systemid in all_to_patch_minions.items():
             ret1 = _patch_single(client, key, systemid, minion_name, kwargs)
-            ret["Patching"].append(ret1)
+            ret["Patching"].append(ret1) """
 
     if 'logfile' in kwargs:
         _write_logs(ret, logfile=kwargs['logfile'])
