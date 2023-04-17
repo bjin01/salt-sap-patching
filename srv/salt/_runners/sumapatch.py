@@ -188,54 +188,6 @@ def _get_session(server):
 
     return client, key
 
-def _btrfs_check(minion_list):
-    grains_info = []
-    minion_list_without_poor_size = []
-    minion_list_with_poor_size = []
-    local = salt.client.LocalClient()
-    #print("minion_list: {}".format(list(minion_list)))
-    ret_sync = []
-    print("Pre-Patching Task: sync grains files to minions.")
-    ret1 = local.cmd_batch(list(minion_list), 'saltutil.sync_grains', tgt_type="list", batch='10%')
-    for result in ret1:
-        ret_sync.append(result)
-        ret_sync.remove(result)
-    #print("ret_sync {}".format(ret_sync))
-
-    ret_refresh = []
-    print("Pre-Patching Task: refresh grains on minions.")
-    ret2 = local.cmd_batch(list(minion_list), 'saltutil.refresh_grains', tgt_type="list", batch='10%')
-    for result in ret2:
-        ret_refresh.append(result)
-        ret_refresh.remove(result)
-    #print("ret_refresh {}".format(ret_refresh))
-
-    print("Pre-Patching Task: btrfs size check using grains on minions.")
-    ret = local.cmd_batch(list(minion_list), 'grains.get', ["btrfs:for_patching"], tgt_type="list", batch='10%')
-    for result in ret:
-        grains_info.append(result)
-        if isinstance(result, dict):
-            for a, b in result.items():
-                if b != "" or b == "ok":
-                    minion_list_without_poor_size.append(a)
-                if b == "no":
-                    minion_list_with_poor_size.append(a)
-    
-    return minion_list_without_poor_size, minion_list_with_poor_size
-
-def _get_grains_info(minion_list):
-    grains_info = []
-    local = salt.client.LocalClient()
-    #print("minion_list: {}".format(list(minion_list)))
-    #_ = local.cmd_batch(list(minion_list), 'saltutil.refresh_grains', tgt_type="list", batch='10%')
-    ret = local.cmd_batch(list(minion_list), 'grains.get', ["srvinfo:INFO_MASTERPLAN"], tgt_type="list", batch='10%')
-    for result in ret:
-        grains_info.append(result)
-        #print("MASTERPLAN: {}".format(grains_info))
-    #print("entire dict grains_info {}".format(grains_info))
-    
-    return grains_info
-
 def _write_post_patching_list(minion_list):
         now = datetime.now()
         date_time = now.strftime("%Y%m%d%H%M%S")
@@ -255,32 +207,14 @@ def _write_post_patching_list(minion_list):
 
         return
 
-def _pre_patching_tasks(minion_list):
-    print("Pre-Patching Task: rebuild rpm DB.")
-    if len(minion_list) == 0:
-        log.error("No minions provided to _pre_patching_tasks")
-        return False
-
-    ret_rpm = []
-    local = salt.client.LocalClient()
-    ret_rpm_rebuild = local.cmd_iter_no_block(list(minion_list), 'cmd.run', ["rpm --rebuilddb"], tgt_type="list")
-    for i in ret_rpm_rebuild:
-        #print(i)
-        ret_rpm.append(i)
-        ret_rpm.remove(i)
-    
-    print("Pre-Patching Task: stop ds_agent.service")
-    ret_stop_svc = []
-    ret_stop_service = local.cmd_iter_no_block(list(minion_list), 'service.stop', ["ds_agent.service", "no_block=True"], tgt_type="list")
-    for i in ret_stop_service:
-        #print(i)
-        ret_stop_svc.append(i)
-        ret_stop_svc.remove(i)
-
+def _pre_patching_tasks(minion_list, timeout=2, gather_job_timeout=10):
+    print("Execut salt runner module - prep_patching.run")
+    runner = salt.runner.RunnerClient(__opts__)
+    prep_patching_list = runner.cmd('prep_patching.run', [minion_list, timeout, gather_job_timeout], print_event=False)
     # write out the minion list for post patching tasks.
     _write_post_patching_list(list(minion_list))
 
-    return True
+    return prep_patching_list
 
 def patch(target_system=None, groups=None, **kwargs):
     '''
@@ -332,8 +266,11 @@ def patch(target_system=None, groups=None, **kwargs):
     ret["Patching"] = []
     all_systems_in_groups = []
     all_to_patch_minions = {}
-    offline_minions = []
+
     ret["btrfs_disqualified"] = []
+    ret["no_patch_execptions"] = []
+    ret["offline_minions"] = []
+
 
     result = subprocess.check_output(["logname"])
     #print("logname output: {}".format(result.decode('utf-8').replace('\n', '')))
@@ -383,34 +320,21 @@ def patch(target_system=None, groups=None, **kwargs):
         log.error(err_msg)
         return {'Error': err_msg}
 
-    # here we ensure the minions are really online
-    
-    if kwargs.get("timeout") and kwargs.get("gather_job_timeout"):
-        present_minions = _minion_presence_check(timeout=kwargs['timeout'],
-                                                 gather_job_timeout=kwargs['gather_job_timeout'])
-    else:
-        present_minions = _minion_presence_check()
 
-    # Check btrfs disk size and other stuff and get new online minion list
-    present_minions, ret["btrfs_disqualified"] = _btrfs_check(present_minions)
-    
     if target_system:
         try:
-            #minion_names = client.saltkey.acceptedList(key)
-            if target_system in list(present_minions):
-                masterplan_list = _get_grains_info([target_system])
-                kwargs["masterplan_list"] = masterplan_list
-                target_system_id = _get_systemid(client, key, target_system)
-                ret1 = _patch_single(client, key, target_system_id, target_system, kwargs)
-                ret["Patching"].append(ret1)
-                present_minions.remove(target_system)
-                print("present minions {}".format(present_minions))
+            pre_patching_list = _pre_patching_tasks([target_system])
+            kwargs["masterplan_list"] = pre_patching_list["masterplan_list"]
+            target_system_id = _get_systemid(client, key, target_system)
+            ret1 = _patch_single(client, key, target_system_id, target_system, kwargs)
+            ret["Patching"].append(ret1)
         except Exception as exc:  # pylint: disable=broad-except
             err_msg = 'Exception raised trying to find host minion id ({0}): {1}'.format(target_system, exc)
             log.error(err_msg)
             ret[target_system] = {'Error': err_msg}
     
     if groups:
+        print("Query systems in the SUMA groups.")
         for g in groups:
             try:
                 systems_in_groups = client.systemgroup.listSystemsMinimal(key, g)
@@ -419,44 +343,44 @@ def patch(target_system=None, groups=None, **kwargs):
                 err_msg = 'Exception raised trying to get active minion list from group ({0}): {1}'.format(g, exc)
                 log.error(err_msg)
 
-    if len(all_systems_in_groups) > 0:
-        for s in list(all_systems_in_groups):
-            if target_system == s["name"]:
-                all_systems_in_groups.remove(s)
-                continue
-            if not s["name"] in present_minions:
-                offline_minions.append(s["name"])
-                all_systems_in_groups.remove(s)
-                log.warning("salt-run manage.up query says {} is not online.".format(s["name"]))
-                continue
-            else:
-                all_to_patch_minions[s["name"]] = s['id']
-    else:
+    suma_minion_list = []
+    if len(all_systems_in_groups) == 0:
         ret["comment"] = "No minion in SUMA groups found. Exit."
         return ret
+        
+    for s in list(all_systems_in_groups):
+        if target_system == s["name"]:
+            all_systems_in_groups.remove(s)
+            continue
+        else:
+            suma_minion_list.append(s["name"])
     
-    ret.update({"offline_minions": offline_minions})
+    if len(all_systems_in_groups) > 0:
+        if kwargs.get("timeout") and kwargs.get("gather_job_timeout"):
+            pre_patching_list = _pre_patching_tasks(suma_minion_list, timeout=kwargs['timeout'],
+                                                 gather_job_timeout=kwargs['gather_job_timeout'])
+        else:
+            pre_patching_list = _pre_patching_tasks(suma_minion_list)
 
-    if len(all_to_patch_minions.keys()) > 0:
-        masterplan_list = _get_grains_info(all_to_patch_minions.keys())
-        kwargs["masterplan_list"] = masterplan_list
-        #print("masterplans: {}".format(kwargs["masterplan_list"]))
+    
+    if len(pre_patching_list["qualified_minions"]) == 0:
+        ret["comment"] = "No qualified minions found. Exit."
+        ret["No_qualified_minions"] = pre_patching_list
+        return ret
+    
+    for s in list(all_systems_in_groups):
+        for minion in pre_patching_list["qualified_minions"]:
+            if s["name"] == minion:
+                all_to_patch_minions[s["name"]] = s['id']
 
-    if 'grains' in kwargs:
-        for x, y in kwargs['grains'].items():
-            for p in list(all_to_patch_minions.keys()):
-                output_grains = __salt__['salt.execute'](p, 'grains.get', [x])
-                if not output_grains.get(p, None):
-                    continue
-                if not y == output_grains.get(p, None):
-                    print("grains {}: {} for <{}>".format(x, y, p))
-                    del all_to_patch_minions[p]
-                    log.info("Remove {} from all_to_patch_minions list due to grains query result: \
-                             {}: {}".format(p, x, y))
+    ret.update({"offline_minions": pre_patching_list["offline_minions"]})
+    ret.update({"no_patch_execptions": pre_patching_list["no_patch_execptions"]})
+    ret.update({"btrfs_disqualified": pre_patching_list["btrfs_disqualified"]})
+    kwargs["masterplan_list"] = pre_patching_list["masterplan_list"]
+    print("masterplans: {}".format(kwargs["masterplan_list"]))
                     
-    log.info("final all_to_patch_minions {}".format(all_to_patch_minions))
-    print("final all_to_patch_minions {}".format(all_to_patch_minions))
-    _ = _pre_patching_tasks(all_to_patch_minions.keys())
+    log.info("final qualified minions: {}".format(all_to_patch_minions))
+    print("final qualified minions: {}".format(all_to_patch_minions))
     for minion_name, systemid in all_to_patch_minions.items():
             ret1 = _patch_single(client, key, systemid, minion_name, kwargs)
             ret["Patching"].append(ret1)
@@ -513,17 +437,7 @@ def _send_to_jobcheck(results):
             print(e)
             return
     
-    return True
-
-def _minion_presence_check(timeout=2, gather_job_timeout=10):
-    print("checking minion presence...")
-    runner = salt.runner.RunnerClient(__opts__)
-    timeout = "timeout={}".format(timeout)
-    gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout)
-    print("the timeouts {} {}".format(timeout,gather_job_timeout))
-    online_minions = runner.cmd('manage.up', [timeout, gather_job_timeout], print_event=False)
-    return online_minions
-    
+    return True    
 
 def _write_logs(input, logfile="/var/log/patching/patching.log"):
     now = datetime.now()
