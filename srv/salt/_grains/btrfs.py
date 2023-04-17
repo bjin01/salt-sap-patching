@@ -20,6 +20,28 @@ def get_btrfs_info():
     btrfs_info = dict()
     btrfs_info["btrfs"] = {}
     
+    precheck_cmd = ["df", "-hTP"]
+    grep_cmd = ["grep", "-E", "/$"]
+    regex_btrfs = r'btrfs'
+
+    try:
+        proc1 = subprocess.Popen(precheck_cmd, bufsize=0, stdout=subprocess.PIPE)
+        proc2 = subprocess.Popen(grep_cmd, bufsize=0, stdin=proc1.stdout, stdout=subprocess.PIPE)
+        for line in iter(proc2.stdout.readline, b''):
+            print(line.decode('utf-8')[:-1])
+            if not re.findall(regex_btrfs, line.decode('utf-8')[:-1]):
+                print("root fs is not btrfs type.")
+                btrfs_info["btrfs"]["comment"] = "No btrfs, {}".format(line.decode('utf-8')[:-1])
+                btrfs_info["btrfs"]["for_patching"] = "ok"
+                return btrfs_info
+                
+        proc2.stdout.close()
+        proc2.wait()
+        
+    except subprocess.CalledProcessError as e:
+        log.error(e)
+        return e
+    
     if os.path.exists(BTRFS_CMD):
         rpm_cmd = ["rpm", "-q", BTRFS_PKG]
         try:
@@ -48,7 +70,7 @@ def get_btrfs_info():
         proc.wait()
         btrfs_info["btrfs"]["root_free"] = free_size
         btrfs_info["btrfs"]["comment"] = "size in GiB"
-        if free_size > 2.00:
+        if free_size >= 2.00:
             btrfs_info["btrfs"]["for_patching"] = "ok"
         else:
             btrfs_info["btrfs"]["for_patching"] = "no"
