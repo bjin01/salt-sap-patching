@@ -236,6 +236,25 @@ def _get_grains_info(minion_list):
     
     return grains_info
 
+def _write_post_patching_list(minion_list):
+        now = datetime.now()
+        date_time = now.strftime("%Y%m%d%H%M%S")
+        post_patching_list = {}
+        post_patching_list["post_patching_minions"] = []
+        post_patching_list["post_patching_minions"] = minion_list
+        file_path = "/srv/pillar/sumapatch/post_patching_minions_{}.sls".format(date_time)
+        
+        # convert the dictionary to YAML
+        if len(post_patching_list["post_patching_minions"]) > 0:
+            yaml_data = yaml.dump(post_patching_list)
+            # write the YAML data to a file
+            with open(file_path, 'w+') as file:
+                file.write(yaml_data)
+                log.info("Post Patching system list has been written to: {}".format(file_path))
+                print("Post Patching system list has been written to: {}".format(file_path))
+
+        return
+
 def _pre_patching_tasks(minion_list):
     print("Pre-Patching Task: rebuild rpm DB.")
     if len(minion_list) == 0:
@@ -252,11 +271,15 @@ def _pre_patching_tasks(minion_list):
     
     print("Pre-Patching Task: stop ds_agent.service")
     ret_stop_svc = []
-    ret_stop_service = local.cmd_iter_no_block(list(minion_list), 'service.stop', ["postfix.service", "no_block=True"], tgt_type="list")
+    ret_stop_service = local.cmd_iter_no_block(list(minion_list), 'service.stop', ["ds_agent.service", "no_block=True"], tgt_type="list")
     for i in ret_stop_service:
         #print(i)
         ret_stop_svc.append(i)
         ret_stop_svc.remove(i)
+
+    # write out the minion list for post patching tasks.
+    _write_post_patching_list(list(minion_list))
+
     return True
 
 def patch(target_system=None, groups=None, **kwargs):
