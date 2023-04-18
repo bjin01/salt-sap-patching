@@ -72,7 +72,6 @@ def run(suma_minion_list, timeout=2, gather_job_timeout=10):
     print("refresh grains on minions.")
     ret2 = local.cmd_batch(list(minion_list), 'saltutil.refresh_grains', tgt_type="list", batch='10%')
     for result in ret2:
-        print(result)
         ret_refresh.append(result)
         ret_refresh.remove(result)
     #print("ret_refresh {}".format(ret_refresh))
@@ -110,7 +109,6 @@ def run(suma_minion_list, timeout=2, gather_job_timeout=10):
         masterplan_info.append(result)
 
     print("rebuild rpm DB.")
-    print(minion_list)
     ret_rpm = []
     ret_rpm_rebuild = local.cmd_iter_no_block(list(minion_list), 'cmd.run', ["rpm --rebuilddb"], tgt_type="list")
     for i in ret_rpm_rebuild:
@@ -120,7 +118,7 @@ def run(suma_minion_list, timeout=2, gather_job_timeout=10):
     
     print("stop ds_agent.service")
     ret_stop_svc = []
-    ret_stop_service = local.cmd_iter_no_block(list(minion_list), 'service.stop', ["postfix.service", "no_block=True"], tgt_type="list")
+    ret_stop_service = local.cmd_iter_no_block(list(minion_list), 'service.stop', ["ds_agent.service", "no_block=True"], tgt_type="list")
     for i in ret_stop_service:
         #print(i)
         ret_stop_svc.append(i)
@@ -142,10 +140,5 @@ def _minion_presence_check(minion_list, timeout=2, gather_job_timeout=10):
     """ timeout = "timeout={}".format(timeout)
     gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout) """
     online_minions = runner.cmd('manage.up', [minion_list, "tgt_type=list", timeout, gather_job_timeout], print_event=False)
-    """ online_minions = runner.cmd('manage.up',  
-                                kwarg={'tgt': minion_list, 
-                                        "tgt_type": 'list',
-                                        "timeout": timeout,
-                                        "gather_job_timeout": gather_job_timeout},
-                                print_event=True) """
+
     return online_minions

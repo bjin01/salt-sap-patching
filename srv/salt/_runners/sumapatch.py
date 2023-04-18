@@ -212,7 +212,7 @@ def _pre_patching_tasks(minion_list, timeout=2, gather_job_timeout=10):
     runner = salt.runner.RunnerClient(__opts__)
     prep_patching_list = runner.cmd('prep_patching.run', [minion_list, timeout, gather_job_timeout], print_event=False)
     # write out the minion list for post patching tasks.
-    _write_post_patching_list(list(minion_list))
+    _write_post_patching_list(list(prep_patching_list["qualified_minions"]))
 
     return prep_patching_list
 
@@ -377,7 +377,7 @@ def patch(target_system=None, groups=None, **kwargs):
     ret.update({"no_patch_execptions": pre_patching_list["no_patch_execptions"]})
     ret.update({"btrfs_disqualified": pre_patching_list["btrfs_disqualified"]})
     kwargs["masterplan_list"] = pre_patching_list["masterplan_list"]
-    print("masterplans: {}".format(kwargs["masterplan_list"]))
+    #print("masterplans: {}".format(kwargs["masterplan_list"]))
                     
     log.info("final qualified minions: {}".format(all_to_patch_minions))
     print("final qualified minions: {}".format(all_to_patch_minions))
