@@ -29,6 +29,12 @@ import time
 import xml.dom.minidom
 import xml.etree.ElementTree as ET
 
+from typing import Any, TYPE_CHECKING
+if TYPE_CHECKING:
+    __salt__: Any = None
+    __opts__: Any = None
+    __context__: Any = None
+
 __virtualname__ = 'cibadmin'
 
 CRMSH = 'crmsh'
