@@ -1,0 +1,11 @@
+[Unit]
+Description=salt runner module allonline.detect
+Requires=salt-online.service
+
+[Timer]
+Unit=salt-online.service
+OnBootSec=4min
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target

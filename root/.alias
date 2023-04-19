@@ -1,0 +1,1 @@
+alias salz='salt -L `cat /srv/pillar/allonline/minions`'

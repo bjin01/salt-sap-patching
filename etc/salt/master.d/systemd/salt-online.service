@@ -1,0 +1,11 @@
+[Unit]
+Description=Detect online salt minions
+After=salt-master.service
+Requires=salt-master.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/salt-run allonline.detect timeout=3 gather_job_timeout=12
+
+[Install]
+WantedBy=multi-user.target
