@@ -47,7 +47,7 @@ def start(filename):
             #print(i)
             ret_start_svc.append(i)
             ret_start_svc.remove(i)
-    return 
+    return True
 
 def stop(filename):
     
@@ -66,7 +66,7 @@ def stop(filename):
             #print(i)
             ret_stop_svc.append(i)
             ret_stop_svc.remove(i)
-    return
+    return True
 
 def set_pl(file, patchlevel):
     ret = dict()
@@ -147,9 +147,9 @@ def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv"):
     for result in ret4:
         ret["Patch_Level"].append(result)
     
-    print("Collect uname from minions.")
+    print("Collect kernel version from minions.")
     ret["kernel"] = []
-    ret5 = local.cmd_batch(list(minion_list), 'cmd.run', ["uname -r"], tgt_type="list", batch='10%')
+    ret5 = local.cmd_batch(list(minion_list), 'grains.get', ["kernelrelease"], tgt_type="list", batch='10%')
     for result in ret5:
         ret["kernel"].append(result)
     
