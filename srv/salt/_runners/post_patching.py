@@ -77,11 +77,13 @@ def set_pl(file, patchlevel):
     with open(file) as f:
         data = yaml.load(f, Loader=yaml.FullLoader)
 
-    post_patching_minions = data['post_patching_minions']
-    print(post_patching_minions)
-    if len(post_patching_minions) == 0:
-        ret["comment"] = "No minions given."
-        return ret
+    post_patching_minions = []
+    for a, b in data.items():
+        post_patching_minions = b
+        print("Preparing to set Patch Level for: {}: {}".format(a,post_patching_minions))
+        if len(post_patching_minions) == 0:
+            ret["comment"] = "No minions given."
+            return ret
 
     local = salt.client.LocalClient()
         #print("minion_list: {}".format(list(minion_list)))
@@ -109,10 +111,13 @@ def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv"):
     with open(file) as f:
         data = yaml.load(f, Loader=yaml.FullLoader)
 
-    minion_list = data['post_patching_minions']
-    if len(minion_list) == 0:
-        ret["comment"] = "no minions found."
-        return ret
+    minion_list = []
+    for a, b in data.items():
+        print("Preparing to set Patch Level for: {}: {}".format(a,b))
+        minion_list = b
+        if len(minion_list) == 0:
+            ret["comment"] = "no minions found."
+            return ret
     
     local = salt.client.LocalClient()
     #print("minion_list: {}".format(list(minion_list)))

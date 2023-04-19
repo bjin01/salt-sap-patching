@@ -205,16 +205,16 @@ def _write_post_patching_list(minion_list):
                 log.info("Post Patching system list has been written to: {}".format(file_path))
                 print("Post Patching system list has been written to: {}".format(file_path))
 
-        return
+        return file_path
 
 def _pre_patching_tasks(minion_list, timeout=2, gather_job_timeout=10):
     print("Execut salt runner module - prep_patching.run")
     runner = salt.runner.RunnerClient(__opts__)
     prep_patching_list = runner.cmd('prep_patching.run', [minion_list, timeout, gather_job_timeout], print_event=False)
     # write out the minion list for post patching tasks.
-    _write_post_patching_list(list(prep_patching_list["qualified_minions"]))
+    post_patching_output = _write_post_patching_list(list(prep_patching_list["qualified_minions"]))
 
-    return prep_patching_list
+    return prep_patching_list, post_patching_output
 
 def patch(target_system=None, groups=None, **kwargs):
     '''
@@ -323,11 +323,12 @@ def patch(target_system=None, groups=None, **kwargs):
 
     if target_system:
         try:
-            pre_patching_list = _pre_patching_tasks([target_system])
+            pre_patching_list, post_patching_file = _pre_patching_tasks([target_system])
             kwargs["masterplan_list"] = pre_patching_list["masterplan_list"]
             target_system_id = _get_systemid(client, key, target_system)
             ret1 = _patch_single(client, key, target_system_id, target_system, kwargs)
             ret["Patching"].append(ret1)
+            ret["post_patching_file"] = post_patching_file
         except Exception as exc:  # pylint: disable=broad-except
             err_msg = 'Exception raised trying to find host minion id ({0}): {1}'.format(target_system, exc)
             log.error(err_msg)
@@ -357,10 +358,12 @@ def patch(target_system=None, groups=None, **kwargs):
     
     if len(all_systems_in_groups) > 0:
         if kwargs.get("timeout") and kwargs.get("gather_job_timeout"):
-            pre_patching_list = _pre_patching_tasks(suma_minion_list, timeout=kwargs['timeout'],
+            pre_patching_list, post_patching_file = _pre_patching_tasks(suma_minion_list, timeout=kwargs['timeout'],
                                                  gather_job_timeout=kwargs['gather_job_timeout'])
+            ret["post_patching_file"] = post_patching_file
         else:
-            pre_patching_list = _pre_patching_tasks(suma_minion_list)
+            pre_patching_list, post_patching_file = _pre_patching_tasks(suma_minion_list)
+            ret["post_patching_file"] = post_patching_file
 
     
     if len(pre_patching_list["qualified_minions"]) == 0:
