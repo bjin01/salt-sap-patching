@@ -29,7 +29,20 @@ def __virtual__():
     '''
     return True
 
-def start(filename):
+def _minion_presence_check(minion_list, timeout=2, gather_job_timeout=10):
+    print("checking minion presence...")
+    runner = salt.runner.RunnerClient(__opts__)
+    timeout = "timeout={}".format(timeout)
+    gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout)
+    print("the timeouts {} {}".format(timeout,gather_job_timeout))
+    """ timeout = "timeout={}".format(timeout)
+    gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout) """
+    minion_status_list = runner.cmd('manage.status', ["tgt={}".format(minion_list), "tgt_type=list", timeout, gather_job_timeout], print_event=False)
+
+    return minion_status_list
+    
+
+def start(filename, state_name, presence_check=False):
     
     with open(filename, 'r') as file:
     # The FullLoader parameter handles the conversion from YAML
@@ -37,10 +50,14 @@ def start(filename):
         minion_dict = yaml.load(file, Loader=yaml.FullLoader)
 
     local = salt.client.LocalClient()
-    print("start ds_agent.service")
+    
     ret_start_svc = []
     for a, b in minion_dict.items():
-        print("{}: {}".format(a, b))
+        #print("{}: {}".format(a, b))
+        if presence_check:
+            minion_status_list = _minion_presence_check(b, timeout=2, gather_job_timeout=10)
+            b = minion_status_list["up"]
+        print("start ds_agent.service")
         ret_start_service = local.cmd_iter_no_block(list(b), 'service.start', ["ds_agent.service", "no_block=True"], tgt_type="list")
         for i in ret_start_service:
             #print(i)
@@ -49,12 +66,23 @@ def start(filename):
         
         print("enable http proxy.")
         ret_http_proxy = []
-        ret_proxy = local.cmd_iter_no_block(list(b), 'state.apply', ["orch.enable_proxy"], tgt_type="list")
+        ret_proxy = local.cmd_iter_no_block(list(b), 'state.apply', [state_name], tgt_type="list")
         for i in ret_proxy:
             #print(i)
             ret_http_proxy.append(i)
             ret_http_proxy.remove(i)
-    return True
+    
+        try:
+            minion_status_list["down"]
+            if len(minion_status_list["down"]) != 0:
+                print("Following minions is or are down:")
+                print(minion_status_list["down"])
+                return minion_status_list["down"]
+            else:
+                return True
+        except:
+            return True
+    
 
 def stop(filename):
     
