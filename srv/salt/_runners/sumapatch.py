@@ -188,13 +188,13 @@ def _get_session(server):
 
     return client, key
 
-def _write_post_patching_list(minion_list):
+def _write_post_patching_list(minion_list, t7user):
         now = datetime.now()
         date_time = now.strftime("%Y%m%d%H%M%S")
         post_patching_list = {}
         post_patching_list["post_patching_minions"] = []
         post_patching_list["post_patching_minions"] = minion_list
-        file_path = "/srv/pillar/sumapatch/post_patching_minions_{}.sls".format(date_time)
+        file_path = "/srv/pillar/sumapatch/post_patching_minions_{}_{}.sls".format(t7user, date_time)
         
         # convert the dictionary to YAML
         if len(post_patching_list["post_patching_minions"]) > 0:
@@ -207,12 +207,12 @@ def _write_post_patching_list(minion_list):
 
         return file_path
 
-def _pre_patching_tasks(minion_list, timeout=2, gather_job_timeout=10):
+def _pre_patching_tasks(minion_list, t7user, timeout=2, gather_job_timeout=10):
     print("Execut salt runner module - prep_patching.run")
     runner = salt.runner.RunnerClient(__opts__)
     prep_patching_list = runner.cmd('prep_patching.run', [minion_list, timeout, gather_job_timeout], print_event=False)
     # write out the minion list for post patching tasks.
-    post_patching_output = _write_post_patching_list(list(prep_patching_list["qualified_minions"]))
+    post_patching_output = _write_post_patching_list(list(prep_patching_list["qualified_minions"]), t7user)
 
     return prep_patching_list, post_patching_output
 
@@ -323,7 +323,7 @@ def patch(target_system=None, groups=None, **kwargs):
 
     if target_system:
         try:
-            pre_patching_list, post_patching_file = _pre_patching_tasks([target_system])
+            pre_patching_list, post_patching_file = _pre_patching_tasks([target_system], ret["t7user"])
             kwargs["masterplan_list"] = pre_patching_list["masterplan_list"]
             target_system_id = _get_systemid(client, key, target_system)
             ret1 = _patch_single(client, key, target_system_id, target_system, kwargs)
@@ -358,11 +358,11 @@ def patch(target_system=None, groups=None, **kwargs):
     
     if len(all_systems_in_groups) > 0:
         if kwargs.get("timeout") and kwargs.get("gather_job_timeout"):
-            pre_patching_list, post_patching_file = _pre_patching_tasks(suma_minion_list, timeout=kwargs['timeout'],
+            pre_patching_list, post_patching_file = _pre_patching_tasks(suma_minion_list, ret["t7user"], timeout=kwargs['timeout'],
                                                  gather_job_timeout=kwargs['gather_job_timeout'])
             ret["post_patching_file"] = post_patching_file
         else:
-            pre_patching_list, post_patching_file = _pre_patching_tasks(suma_minion_list)
+            pre_patching_list, post_patching_file = _pre_patching_tasks(suma_minion_list, ret["t7user"])
             ret["post_patching_file"] = post_patching_file
 
     
@@ -383,7 +383,7 @@ def patch(target_system=None, groups=None, **kwargs):
     #print("masterplans: {}".format(kwargs["masterplan_list"]))
                     
     log.info("final qualified minions: {}".format(all_to_patch_minions))
-    print("final qualified minions: {}".format(all_to_patch_minions))
+    print("Start patch job scheduling.")
     for minion_name, systemid in all_to_patch_minions.items():
             ret1 = _patch_single(client, key, systemid, minion_name, kwargs)
             ret["Patching"].append(ret1)
@@ -593,7 +593,7 @@ def _reboot_required(client, key):
     try:
         result_reboot_required = client.system.listSuggestedReboot(key)
         #print("result_systemid {}".format(result_systemid))
-        print("reboot list: {}".format(result_reboot_required))
+        #print("reboot list: {}".format(result_reboot_required))
         return result_reboot_required
     except Exception as exc:
         err_msg = 'Exception raised while trying to get reboot required list: ({0})'.format(exc)
