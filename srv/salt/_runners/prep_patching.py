@@ -108,6 +108,15 @@ def run(suma_minion_list, timeout=2, gather_job_timeout=10):
     for result in ret:
         masterplan_info.append(result)
 
+    
+    print("disable http proxy.")
+    ret_http_proxy = []
+    ret_proxy = local.cmd_iter_no_block(list(minion_list), 'state.apply', ["orch.disable_proxy"], tgt_type="list")
+    for i in ret_proxy:
+        #print(i)
+        ret_http_proxy.append(i)
+        ret_http_proxy.remove(i)
+
     print("rebuild rpm DB.")
     ret_rpm = []
     ret_rpm_rebuild = local.cmd_iter_no_block(list(minion_list), 'cmd.run', ["rpm --rebuilddb"], tgt_type="list")

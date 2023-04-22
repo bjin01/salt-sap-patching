@@ -2,7 +2,6 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 # Import python libs
 from cryptography.fernet import Fernet
-import atexit
 import logging
 import csv
 import os
@@ -47,6 +46,14 @@ def start(filename):
             #print(i)
             ret_start_svc.append(i)
             ret_start_svc.remove(i)
+        
+        print("enable http proxy.")
+        ret_http_proxy = []
+        ret_proxy = local.cmd_iter_no_block(list(b), 'state.apply', ["orch.enable_proxy"], tgt_type="list")
+        for i in ret_proxy:
+            #print(i)
+            ret_http_proxy.append(i)
+            ret_http_proxy.remove(i)
     return True
 
 def stop(filename):
