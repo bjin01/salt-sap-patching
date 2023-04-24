@@ -207,10 +207,10 @@ def _write_post_patching_list(minion_list, t7user):
 
         return file_path
 
-def _pre_patching_tasks(minion_list, t7user, timeout=2, gather_job_timeout=10):
+def _pre_patching_tasks(minion_list, t7user, state_name="", timeout=2, gather_job_timeout=10):
     print("Execut salt runner module - prep_patching.run")
     runner = salt.runner.RunnerClient(__opts__)
-    prep_patching_list = runner.cmd('prep_patching.run', [minion_list, timeout, gather_job_timeout], print_event=False)
+    prep_patching_list = runner.cmd('prep_patching.run', [minion_list, state_name, timeout, gather_job_timeout], print_event=False)
     # write out the minion list for post patching tasks.
     post_patching_output = _write_post_patching_list(list(prep_patching_list["qualified_minions"]), t7user)
 
@@ -257,6 +257,9 @@ def patch(target_system=None, groups=None, **kwargs):
                 jobchecker_emails:
                   - abc@example.com
                   - xyz@example.com
+                prep_patching: orch.prep_state
+                post_patching: orch.post_state
+                patch_level: 2023-Q2
                 
     '''
 
@@ -299,7 +302,22 @@ def patch(target_system=None, groups=None, **kwargs):
     if kwargs.get("t7user"):
         ret["t7user"] = kwargs.get("t7user")
     else:
-        ret["t7user"] = kwargs.get("unknown")
+        ret["t7user"] = "unknown"
+    
+    if kwargs.get("prep_patching"):
+        ret["prep_patching"] = kwargs.get("prep_patching")
+    else:
+        ret["prep_patching"] = ""
+    
+    if kwargs.get("post_patching"):
+        ret["post_patching"] = kwargs.get("post_patching")
+    else:
+        ret["post_patching"] = ""
+    
+    if kwargs.get("patch_level"):
+        ret["patch_level"] = kwargs.get("patch_level")
+    else:
+        ret["patch_level"] = ""
 
     if 'logfile' in kwargs:
         #mylog = logging.getLogger()  # root logger - Good to get it only once.
@@ -323,7 +341,7 @@ def patch(target_system=None, groups=None, **kwargs):
 
     if target_system:
         try:
-            pre_patching_list, post_patching_file = _pre_patching_tasks([target_system], ret["t7user"])
+            pre_patching_list, post_patching_file = _pre_patching_tasks([target_system], ret["t7user"], state_name=ret["prep_patching"])
             kwargs["masterplan_list"] = pre_patching_list["masterplan_list"]
             target_system_id = _get_systemid(client, key, target_system)
             ret1 = _patch_single(client, key, target_system_id, target_system, kwargs)
@@ -358,11 +376,11 @@ def patch(target_system=None, groups=None, **kwargs):
     
     if len(all_systems_in_groups) > 0:
         if kwargs.get("timeout") and kwargs.get("gather_job_timeout"):
-            pre_patching_list, post_patching_file = _pre_patching_tasks(suma_minion_list, ret["t7user"], timeout=kwargs['timeout'],
-                                                 gather_job_timeout=kwargs['gather_job_timeout'])
+            pre_patching_list, post_patching_file = _pre_patching_tasks(suma_minion_list, ret["t7user"], state_name=ret["prep_patching"],
+                                                 timeout=kwargs['timeout'], gather_job_timeout=kwargs['gather_job_timeout'])
             ret["post_patching_file"] = post_patching_file
         else:
-            pre_patching_list, post_patching_file = _pre_patching_tasks(suma_minion_list, ret["t7user"])
+            pre_patching_list, post_patching_file = _pre_patching_tasks(suma_minion_list, ret["t7user"], state_name=ret["prep_patching"])
             ret["post_patching_file"] = post_patching_file
 
     

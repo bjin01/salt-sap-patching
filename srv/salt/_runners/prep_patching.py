@@ -45,7 +45,7 @@ def _get_diff(li1, li2):
     li_dif = [i for i in li1 + li2 if i not in li1 or i not in li2]
     return li_dif
 
-def run(suma_minion_list, timeout=2, gather_job_timeout=10):
+def run(suma_minion_list, state_name="", timeout=2, gather_job_timeout=10):
     masterplan_info = []
     minion_list_without_poor_size = []
     minion_list_with_poor_size = []
@@ -108,30 +108,24 @@ def run(suma_minion_list, timeout=2, gather_job_timeout=10):
     for result in ret:
         masterplan_info.append(result)
 
-    
-    print("disable http proxy.")
-    ret_http_proxy = []
-    ret_proxy = local.cmd_iter_no_block(list(minion_list), 'state.apply', ["orch.disable_proxy"], tgt_type="list")
-    for i in ret_proxy:
-        #print(i)
-        ret_http_proxy.append(i)
-        ret_http_proxy.remove(i)
+    if state_name != "":
+        print("apply state {}.".format(state_name))
+        not_needed = local.cmd_iter_no_block(list(minion_list), 'state.apply', [state_name], tgt_type="list")
+        for w in not_needed:
+            x = []
+            x.append(w)
 
     print("rebuild rpm DB.")
-    ret_rpm = []
-    ret_rpm_rebuild = local.cmd_iter_no_block(list(minion_list), 'cmd.run', ["rpm --rebuilddb"], tgt_type="list")
-    for i in ret_rpm_rebuild:
-        #print(i)
-        ret_rpm.append(i)
-        ret_rpm.remove(i)
-    
+    not_needed = local.cmd_iter_no_block(list(minion_list), 'cmd.run', ["rpm --rebuilddb"], tgt_type="list")
+    for w in not_needed:
+        x = []
+        x.append(w)
+
     print("stop ds_agent.service")
-    ret_stop_svc = []
-    ret_stop_service = local.cmd_iter_no_block(list(minion_list), 'service.stop', ["ds_agent.service", "no_block=True"], tgt_type="list")
-    for i in ret_stop_service:
-        #print(i)
-        ret_stop_svc.append(i)
-        ret_stop_svc.remove(i)
+    not_needed = local.cmd_iter_no_block(list(minion_list), 'service.stop', ["ds_agent.service", "no_block=True"], tgt_type="list")
+    for w in not_needed:
+        x = []
+        x.append(w)
     
     final_minion_list["qualified_minions"] = minion_list
     final_minion_list["btrfs_disqualified"] = minion_list_with_poor_size
@@ -146,8 +140,6 @@ def _minion_presence_check(minion_list, timeout=2, gather_job_timeout=10):
     timeout = "timeout={}".format(timeout)
     gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout)
     print("the timeouts {} {}".format(timeout,gather_job_timeout))
-    """ timeout = "timeout={}".format(timeout)
-    gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout) """
     online_minions = runner.cmd('manage.up', [minion_list, "tgt_type=list", timeout, gather_job_timeout], print_event=False)
 
     return online_minions

@@ -42,7 +42,7 @@ def _minion_presence_check(minion_list, timeout=2, gather_job_timeout=10):
     return minion_status_list
     
 
-def start(filename, state_name, presence_check=False):
+def start(filename, state_name="", presence_check=False):
     
     with open(filename, 'r') as file:
     # The FullLoader parameter handles the conversion from YAML
@@ -51,26 +51,23 @@ def start(filename, state_name, presence_check=False):
 
     local = salt.client.LocalClient()
     
-    ret_start_svc = []
     for a, b in minion_dict.items():
         #print("{}: {}".format(a, b))
         if presence_check:
             minion_status_list = _minion_presence_check(b, timeout=2, gather_job_timeout=10)
             b = minion_status_list["up"]
         print("start ds_agent.service")
-        ret_start_service = local.cmd_iter_no_block(list(b), 'service.start', ["ds_agent.service", "no_block=True"], tgt_type="list")
-        for i in ret_start_service:
-            #print(i)
-            ret_start_svc.append(i)
-            ret_start_svc.remove(i)
-        
-        print("enable http proxy.")
-        ret_http_proxy = []
-        ret_proxy = local.cmd_iter_no_block(list(b), 'state.apply', [state_name], tgt_type="list")
-        for i in ret_proxy:
-            #print(i)
-            ret_http_proxy.append(i)
-            ret_http_proxy.remove(i)
+        not_needed = local.cmd_iter_no_block(list(b), 'service.start', ["ds_agent.service", "no_block=True"], tgt_type="list")
+        for w in not_needed:
+            x = []
+            x.append(w)
+
+        if state_name != "":
+            print("apply state: {}".format(state_name))
+            not_needed = local.cmd_iter_no_block(list(b), 'state.apply', [state_name], tgt_type="list")
+            for w in not_needed:
+                x = []
+                x.append(w)
     
         try:
             if presence_check:
@@ -85,7 +82,7 @@ def start(filename, state_name, presence_check=False):
             return True
     
 
-def stop(filename, state_name, presence_check=False):
+def stop(filename, state_name="", presence_check=False):
     
     with open(filename, 'r') as file:
     # The FullLoader parameter handles the conversion from YAML
@@ -94,25 +91,22 @@ def stop(filename, state_name, presence_check=False):
 
     local = salt.client.LocalClient()
     print("stop ds_agent.service")
-    ret_stop_svc = []
     for a, b in minion_dict.items():
         if presence_check:
             minion_status_list = _minion_presence_check(b, timeout=2, gather_job_timeout=10)
             b = minion_status_list["up"]
         #print("{}: {}".format(a, b))
-        ret_stop_service = local.cmd_iter_no_block(list(b), 'service.stop', ["ds_agent.service", "no_block=True"], tgt_type="list")
-        for i in ret_stop_service:
-            #print(i)
-            ret_stop_svc.append(i)
-            ret_stop_svc.remove(i)
-        
-        print("enable http proxy.")
-        ret_http_proxy = []
-        ret_proxy = local.cmd_iter_no_block(list(b), 'state.apply', [state_name], tgt_type="list")
-        for i in ret_proxy:
-            #print(i)
-            ret_http_proxy.append(i)
-            ret_http_proxy.remove(i)
+        not_needed = local.cmd_iter_no_block(list(b), 'service.stop', ["ds_agent.service", "no_block=True"], tgt_type="list")
+        for w in not_needed:
+            x = []
+            x.append(w)
+
+        if state_name != "":
+            print("execute state: {}.".format(state_name))
+            not_needed = local.cmd_iter_no_block(list(b), 'state.apply', [state_name], tgt_type="list")
+            for w in not_needed:
+                x = []
+                x.append(w)
     
     try:
         if presence_check:
@@ -174,7 +168,7 @@ def set_pl(file, patchlevel, presence_check=False):
 
     return ret_sync
 
-def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv"):
+def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", presence_check=False):
     ret = dict()
     if not os.path.exists(file):
         ret["input_file"] = "File Not found: {}.".format(file)
@@ -185,8 +179,10 @@ def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv"):
 
     minion_list = []
     for a, b in data.items():
-        print("Preparing to set Patch Level for: {}: {}".format(a,b))
-        minion_list = b
+        if presence_check:
+            minion_status_list = _minion_presence_check(b, timeout=2, gather_job_timeout=10)
+            b = minion_status_list["up"]
+        
         if len(minion_list) == 0:
             ret["comment"] = "no minions found."
             return ret
@@ -195,39 +191,39 @@ def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv"):
     #print("minion_list: {}".format(list(minion_list)))
     ret_sync = []
     print("sync grains files to minions.")
-    ret1 = local.cmd_batch(list(minion_list), 'saltutil.sync_grains', tgt_type="list", batch='10%')
+    ret1 = local.cmd_batch(list(b), 'saltutil.sync_grains', tgt_type="list", batch='10%')
     for result in ret1:
         ret_sync.append(result)
         ret_sync.remove(result)
 
     ret_refresh = []
     print("refresh grains on minions.")
-    ret2 = local.cmd_batch(list(minion_list), 'saltutil.refresh_grains', tgt_type="list", batch='10%')
+    ret2 = local.cmd_batch(list(b), 'saltutil.refresh_grains', tgt_type="list", batch='10%')
     for result in ret2:
         ret_refresh.append(result)
         ret_refresh.remove(result)
     
     print("Collect OS Version from minions.")
     ret["OS_Version"] = []
-    ret3 = local.cmd_batch(list(minion_list), 'grains.get', ["oscodename"], tgt_type="list", batch='10%')
+    ret3 = local.cmd_batch(list(b), 'grains.get', ["oscodename"], tgt_type="list", batch='10%')
     for result in ret3:
         ret["OS_Version"].append(result)
     
     print("Collect Patch Level from minions.")
     ret["Patch_Level"] = []
-    ret4 = local.cmd_batch(list(minion_list), 'grains.get', ["root_info:SYSPL"], tgt_type="list", batch='10%')
+    ret4 = local.cmd_batch(list(b), 'grains.get', ["root_info:SYSPL"], tgt_type="list", batch='10%')
     for result in ret4:
         ret["Patch_Level"].append(result)
     
     print("Collect kernel version from minions.")
     ret["kernel"] = []
-    ret5 = local.cmd_batch(list(minion_list), 'grains.get', ["kernelrelease"], tgt_type="list", batch='10%')
+    ret5 = local.cmd_batch(list(b), 'grains.get', ["kernelrelease"], tgt_type="list", batch='10%')
     for result in ret5:
         ret["kernel"].append(result)
     
     print("Collect uptime from minions.")
     ret["uptime"] = []
-    ret6 = local.cmd_batch(list(minion_list), 'cmd.run', ["uptime"], tgt_type="list", batch='10%')
+    ret6 = local.cmd_batch(list(b), 'cmd.run', ["uptime"], tgt_type="list", batch='10%')
     for result in ret6:
         if isinstance(result, dict):
             for a, b in result.items():

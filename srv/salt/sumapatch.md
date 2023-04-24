@@ -23,20 +23,23 @@ Here is a sample salt orchestrator sls file (salt://orch/test1.sls) to use sumap
 run_patching:
   salt.runner:
     - name: sumapatch.patch 
+    - target_system: pxesap01.bo2go.home
     - groups:
       - testgrp
-      - othergroup
     - kwargs:
       delay: 5
+      timeout: 3
+      gather_job_timeout: 15
       logfile: /var/log/patching/sumapatching.log
-      timeout: 2
-      gather_job_timeout: 8
       jobchecker_timeout: 20
       jobchecker_emails:
-        - admin@mycorp.com
-        - admin2@others.com
+        - bj@somedomain.dot
       grains: 
         no_patch: False
+      t7user: t7777
+      prep_patching: orch.disable_proxy
+      post_patching: orch.enable_proxy
+      patch_level: 2023-Q2
 ```
 
 </details>
@@ -141,4 +144,73 @@ run_patching:
 If the sls file is called reboots and resides in orch directory:
 ```
 salt-run state.orch orch.reboots
+```
+Sample output from sumapatch.patch
+```
+suma1.bo2go.home_master:
+----------
+          ID: run_patching
+    Function: salt.runner
+        Name: sumapatch.patch
+      Result: True
+     Comment: Runner function 'sumapatch.patch' executed.
+     Started: 10:29:45.034921
+    Duration: 32426.463 ms
+     Changes:   
+              ----------
+              return:
+                  ----------
+                  Patching:
+                      |_
+                        ----------
+                        pxesap01.bo2go.home:
+                            ----------
+                            Patch Job ID is:
+                                1102
+                            event send:
+                                True
+                            masterplan:
+                                P-Basis-suma-aaa
+                      |_
+                        ----------
+                        pxesap02.bo2go.home:
+                            ----------
+                            Patch Job ID is:
+                                1103
+                            event send:
+                                True
+                            masterplan:
+                                P-Basis-suma
+                  btrfs_disqualified:
+                  jobchecker_emails:
+                      - bj@somedomain.dot
+                  jobchecker_timeout:
+                      25
+                  jobstart_delay:
+                      5
+                  no_patch_execptions:
+                      - jupiter.bo2go.home
+                  offline_minions:
+                      - mars
+                      - saturn
+                  patch_level:
+                      2023-Q2
+                  post_patching:
+                      orch.enable_proxy
+                  post_patching_file:
+                      /srv/pillar/sumapatch/post_patching_minions_t7777_20230424103016.sls
+                  prep_patching:
+                      orch.disable_proxy
+                  t7user:
+                      t7777
+                  user:
+                      root
+
+Summary for suma1.bo2go.home_master
+------------
+Succeeded: 1 (changed=1)
+Failed:    0
+------------
+Total states run:     1
+Total run time:  32.426 s
 ```
