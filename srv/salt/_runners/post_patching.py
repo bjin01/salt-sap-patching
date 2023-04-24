@@ -73,18 +73,19 @@ def start(filename, state_name, presence_check=False):
             ret_http_proxy.remove(i)
     
         try:
-            minion_status_list["down"]
-            if len(minion_status_list["down"]) != 0:
-                print("Following minions is or are down:")
-                print(minion_status_list["down"])
-                return minion_status_list["down"]
-            else:
-                return True
+            if presence_check:
+                if len(minion_status_list["down"]) != 0:
+                    print("Following minions is or are down:")
+                    print(minion_status_list["down"])
+                    return minion_status_list["down"]
+                else:
+                    print("All given minions are online.")
+                    return True
         except:
             return True
     
 
-def stop(filename):
+def stop(filename, state_name, presence_check=False):
     
     with open(filename, 'r') as file:
     # The FullLoader parameter handles the conversion from YAML
@@ -95,15 +96,38 @@ def stop(filename):
     print("stop ds_agent.service")
     ret_stop_svc = []
     for a, b in minion_dict.items():
-        print("{}: {}".format(a, b))
+        if presence_check:
+            minion_status_list = _minion_presence_check(b, timeout=2, gather_job_timeout=10)
+            b = minion_status_list["up"]
+        #print("{}: {}".format(a, b))
         ret_stop_service = local.cmd_iter_no_block(list(b), 'service.stop', ["ds_agent.service", "no_block=True"], tgt_type="list")
         for i in ret_stop_service:
             #print(i)
             ret_stop_svc.append(i)
             ret_stop_svc.remove(i)
+        
+        print("enable http proxy.")
+        ret_http_proxy = []
+        ret_proxy = local.cmd_iter_no_block(list(b), 'state.apply', [state_name], tgt_type="list")
+        for i in ret_proxy:
+            #print(i)
+            ret_http_proxy.append(i)
+            ret_http_proxy.remove(i)
+    
+    try:
+        if presence_check:
+            if len(minion_status_list["down"]) != 0:
+                print("Following minions is or are down:")
+                print(minion_status_list["down"])
+                return minion_status_list["down"]
+            else:
+                print("All given minions are online.")
+                return True
+    except:
+        return True
     return True
 
-def set_pl(file, patchlevel):
+def set_pl(file, patchlevel, presence_check=False):
     ret = dict()
     if not os.path.exists(file):
         ret["input_file"] = "File Not found: {}.".format(file)
@@ -114,6 +138,9 @@ def set_pl(file, patchlevel):
 
     post_patching_minions = []
     for a, b in data.items():
+        if presence_check:
+            minion_status_list = _minion_presence_check(b, timeout=2, gather_job_timeout=10)
+            b = minion_status_list["up"]
         post_patching_minions = b
         print("Preparing to set Patch Level for: {}: {}".format(a,post_patching_minions))
         if len(post_patching_minions) == 0:
@@ -134,6 +161,16 @@ def set_pl(file, patchlevel):
     ret1 = local.cmd_batch(list(post_patching_minions), 'postpatching.set_patchlevel', [patchlevel], tgt_type="list", batch='10%')
     for result in ret1:
         ret_sync.append(result)
+    
+    try:
+        if presence_check:
+            if len(minion_status_list["down"]) != 0:
+                print("Following minions is or are down:")
+                print(minion_status_list["down"])
+            else:
+                print("All given minions are online.")
+    except Exception as e: print(e)
+        
 
     return ret_sync
 
