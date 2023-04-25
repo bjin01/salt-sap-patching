@@ -20,6 +20,7 @@ import logging
 from salt import exceptions
 import os
 import re
+import subprocess
 
 from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
@@ -41,6 +42,14 @@ def set_patchlevel(syspl, srvinfo=srvinfo_file, root_info=root_info_file):
     salt "*" postpatching.set_patchlevel 2023-Q2
     '''
     ret = dict()
+    if __salt__['service.status']("opsware-agent.service"):
+        out = set_info_cloud(syspl)
+        if "comment" in out.keys():
+            return out
+        else:
+            ret["cloud-vm"] = "{} {}".format(out, syspl)
+        return ret
+    
     if not os.path.exists(srvinfo):
         ret["srvinfo"] = "File Not found."
         __context__["retcode"] = 42
@@ -102,3 +111,40 @@ def set_srvinfo(val, srvinfo=srvinfo_file):
         return ret
     
     return ret["srvinfo"]
+
+def set_info_cloud(syspl):
+    ret = dict()
+    AGENTTOOLS = "/opt/opsware/agent_tools"
+    linux_sys_info = "/admin/bin/linux_sys_info"
+    if not os.path.exists(AGENTTOOLS):
+        ret["comment"] = "No opsware agent found. Exit"
+        __context__["retcode"] = 42
+        return ret
+    else:
+        cmd = "{}/set_cust_field.sh".format(AGENTTOOLS)
+        cmd_output = subprocess.Popen([cmd, 'Patch Level', syspl],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                        )
+
+        for line in iter(cmd_output.stdout.readline, b''):
+            output_string = line.decode('utf-8')
+            print(output_string)
+
+
+        if os.path.exists(linux_sys_info):
+            cmd_output = subprocess.Popen([cmd],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                        )
+
+            for line in iter(cmd_output.stdout.readline, b''):
+                output_string = line.decode('utf-8')
+                print(output_string)
+        else:
+            ret["comment"] = "No {} agent found. Exit".format(linux_sys_info)
+            __context__["retcode"] = 42
+            return ret
+
+
+    return ret
