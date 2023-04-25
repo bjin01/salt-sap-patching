@@ -133,7 +133,7 @@ def set_info_cloud(syspl):
 
 
         if os.path.exists(linux_sys_info):
-            cmd_output = subprocess.Popen([cmd],
+            cmd_output = subprocess.Popen([linux_sys_info],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE
                         )
