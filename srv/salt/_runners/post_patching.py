@@ -156,6 +156,13 @@ def set_pl(file, patchlevel, presence_check=False):
     for result in ret1:
         ret_sync.append(result)
     
+    ret_refresh = []
+    print("refresh grains on minions.")
+    ret2 = local.cmd_batch(list(post_patching_minions), 'saltutil.refresh_grains', tgt_type="list", batch='10%')
+    for result in ret2:
+        ret_refresh.append(result)
+        ret_refresh.remove(result)
+
     try:
         if presence_check:
             if len(minion_status_list["down"]) != 0:

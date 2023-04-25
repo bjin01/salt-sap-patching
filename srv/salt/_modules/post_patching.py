@@ -47,7 +47,7 @@ def set_patchlevel(syspl, srvinfo=srvinfo_file, root_info=root_info_file):
         if "comment" in out.keys():
             return out
         else:
-            ret["cloud-vm"] = "{} {}".format(out, syspl)
+            ret["cloud-vm"] = "{} written to HPSA and srvinfo and /root/info".format(out, syspl)
         return ret
     
     if not os.path.exists(srvinfo):
@@ -116,6 +116,7 @@ def set_info_cloud(syspl):
     ret = dict()
     AGENTTOOLS = "/opt/opsware/agent_tools"
     linux_sys_info = "/admin/bin/linux_sys_info"
+    server_info = "/admin/bin/server_info"
     if not os.path.exists(AGENTTOOLS):
         ret["comment"] = "No opsware agent found. Exit"
         __context__["retcode"] = 42
@@ -142,7 +143,21 @@ def set_info_cloud(syspl):
                 output_string = line.decode('utf-8')
                 print(output_string)
         else:
-            ret["comment"] = "No {} agent found. Exit".format(linux_sys_info)
+            ret["comment"] = "No {} found. Exit".format(linux_sys_info)
+            __context__["retcode"] = 42
+            return ret
+        
+        if os.path.exists(server_info):
+            cmd_output = subprocess.Popen([server_info],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                        )
+
+            for line in iter(cmd_output.stdout.readline, b''):
+                output_string = line.decode('utf-8')
+                print(output_string)
+        else:
+            ret["comment"] = "No {} found. Exit".format(server_info)
             __context__["retcode"] = 42
             return ret
 
