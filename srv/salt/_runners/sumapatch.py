@@ -33,7 +33,7 @@ import os
 import urllib3
 import yaml
 import json
-import time
+import copy
 import subprocess
 import salt.client
 from salt.ext import six
@@ -509,7 +509,7 @@ def _patch_single(client, key, target_system_id, target_system_name, kwargs):
 
     if target_system_id:
         try:
-            errata_list = client.system.getRelevantErrata(key, target_system_id)
+            errata_list = client.system.listLatestUpgradablePackages(key, target_system_id)
         except Exception as exc:  # pylint: disable=broad-except
             err_msg = 'Exception raised when trying to get {1} all patch ID: {0}'.format(exc, target_system_id)
             log.error(err_msg)
@@ -518,7 +518,7 @@ def _patch_single(client, key, target_system_id, target_system_name, kwargs):
 
         if errata_list and len(errata_list) > 0:
             for x in errata_list:
-                errata_id_list.append(x['id'])
+                errata_id_list.append(x['to_package_id'])
         else:
             info_msg = '{}: It looks like the system is fully patched.'.format(target_system_name)
             log.info(info_msg)
@@ -540,13 +540,13 @@ def _patch_single(client, key, target_system_id, target_system_name, kwargs):
 
         earliest_occurrence = six.moves.xmlrpc_client.DateTime(nowlater)
         try:
-            patch_job = client.system.scheduleApplyErrata(key, target_system_id, errata_id_list, earliest_occurrence, True)
+            patch_job = client.system.schedulePackageInstall(key, target_system_id, errata_id_list, earliest_occurrence, True)
             if patch_job:
-                local = salt.client.LocalClient()
+                """ local = salt.client.LocalClient()
                 local.cmd(target_system_name, 'event.send', ['suma/patch/job/id', \
-                            {"node": target_system_name, "jobid": patch_job[0]}])
+                            {"node": target_system_name, "jobid": patch_job[0]}]) """
                 log.info("SUMA Patch job {} created for {}".format(patch_job, target_system_name))     
-                ret[target_system_name].update({"Patch Job ID is": patch_job[0], "event send": True})
+                ret[target_system_name].update({"Patch Job ID is": patch_job, "event send": True})
                 return ret
             
         except Exception as exc:  # pylint: disable=broad-except
@@ -564,7 +564,7 @@ def reboot(reboot_list=None, **kwargs):
     server = suma_config["servername"]
     reboot_dict = dict()
     ret = dict()
-    ret["reboot_jobs"] = {}
+    ret["reboot_jobs"] = []
     try:
         client, key = _get_session(server)
     except Exception as exc:  # pylint: disable=broad-except
@@ -578,6 +578,32 @@ def reboot(reboot_list=None, **kwargs):
             nowlater = datetime.now() + timedelta(minutes=int(delay))
         else:
             nowlater = datetime.now() + timedelta(minutes=2)
+    else:
+        nowlater = datetime.now() + timedelta(minutes=2)
+    
+    if kwargs.get("jobchecker_emails"):
+        ret["jobchecker_emails"] = []
+        ret["jobchecker_emails"] = kwargs.get("jobchecker_emails")
+        print("jobchecker emails: {}".format(ret["jobchecker_emails"]))
+        
+    if kwargs.get("jobchecker_timeout"):
+        if kwargs.get('delay'):
+            ret["jobchecker_timeout"] = kwargs["delay"] + kwargs["jobchecker_timeout"]
+            ret["jobstart_delay"] = kwargs["delay"]
+        else:
+            ret["jobchecker_timeout"] = kwargs["jobchecker_timeout"]
+            ret["jobstart_delay"] = 0
+    else:
+        ret["jobchecker_timeout"] = 30
+        if kwargs.get('delay'):
+            ret["jobstart_delay"] = kwargs["delay"]
+        else:
+            ret["jobstart_delay"] = 0
+    
+    if kwargs.get("t7user"):
+        ret["t7user"] = kwargs.get("t7user")
+    else:
+        ret["t7user"] = "unknown"
     
     if not reboot_list == None:
         # Open the YAML file
@@ -601,9 +627,32 @@ def reboot(reboot_list=None, **kwargs):
                     if any(system in d.values() for d in reboot_required_list):
                         for reboot_required in reboot_required_list: 
                             if reboot_required["name"] == system:
-                                ret["reboot_jobs"][system] = _reboot_single(client, key, reboot_required["id"], earliest_occurrence)
+                                reboot_out = _reboot_single(client, key, reboot_required["id"], earliest_occurrence)
+                                ret["reboot_jobs"].append({system: reboot_out})
                     else:
-                        ret["reboot_jobs"][system] = {"comment": "No reboot needed or another reboot job is pending."}
+                        ret["reboot_jobs"].append({system :{"comment": "No reboot needed or another reboot job is pending."}})
+    
+
+    if len(ret["reboot_jobs"]) > 0:
+        for system in list(ret["reboot_jobs"]):
+            if isinstance(system, dict):
+                for key, val in system.items():
+                    if not isinstance(val, dict):
+                        ret["reboot_jobs"].remove(system)
+                    if not "Reboot Job ID is" in val.keys():
+                        ret["reboot_jobs"].remove(system)
+            else:
+                ret["reboot_jobs"].remove(system)
+    
+    # only call jobchecker if list is greater than 0
+    if len(ret["reboot_jobs"]) > 0:
+        result_to_jobchecker = copy.deepcopy(ret)
+        result_to_jobchecker["Patching"] = copy.deepcopy(ret["reboot_jobs"])
+        print(result_to_jobchecker)
+        _send_to_jobcheck(result_to_jobchecker)
+    else:
+        log.warning("No reboot jobs scheduled at all, not calling jobchecker. Exit")
+
     return ret
 
 def _reboot_required(client, key):
@@ -655,4 +704,137 @@ def _reboot_single(client, key, server_id, earliest_occurrence):
             log.info("SUMA Reboot job {} created for {}".format(result_reboot_job, server_id))
             #print("SUMA Reboot job {} created for {}".format(result_reboot_job, target_system))
             return {"Reboot Job ID is": result_reboot_job}
+
+def _schedule_pkg_refresh_job(client, key, target_system_id, target_system, kwargs):
+    ret = dict()
+    ret[target_system] = {}
+    nowlater = datetime.now()
+    if kwargs.get("delay"):
+        if int(kwargs['delay']) > 0:
+            delay = kwargs['delay']
+            nowlater = datetime.now() + timedelta(minutes=int(delay))
+        else:
+            nowlater = datetime.now() + timedelta(minutes=2)
     
+    earliest_occurrence = six.moves.xmlrpc_client.DateTime(nowlater)
+    if target_system_id:
+        
+        try:
+            refresh_job_id = client.system.schedulePackageRefresh(key, target_system_id, earliest_occurrence)
+            ret[target_system].update({"Pkg refresh Job ID": refresh_job_id})
+        except Exception as exc:  # pylint: disable=broad-except
+            err_msg = 'Exception raised when trying to get {1} schedule pkg refresh job: {0}'.format(exc, target_system)
+            log.error(err_msg)
+            ret[target_system].update({"error_message": err_msg})
+            return ret
+        
+    return ret
+
+def _minion_presence_check(minion_list, timeout=2, gather_job_timeout=10):
+    print("checking minion presence...")
+    runner = salt.runner.RunnerClient(__opts__)
+    timeout = "timeout={}".format(timeout)
+    gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout)
+    print("the timeouts {} {}".format(timeout,gather_job_timeout))
+    
+    minion_status_list = runner.cmd('manage.status', ["tgt={}".format(minion_list), "tgt_type=list", timeout, gather_job_timeout], print_event=False)
+
+    return minion_status_list
+
+def refresh_package_list(target_system=None, groups=None, **kwargs):
+    suma_config = _get_suma_configuration()
+    server = suma_config["servername"]
+    ret = dict()
+    ret["refresh_package_list"] = []
+    all_systems_in_groups = []
+    all_to_refresh_minions = {}
+
+    if 'logfile' in kwargs:
+        #mylog = logging.getLogger()  # root logger - Good to get it only once.
+        for hdlr in log.handlers[:]:  # remove the existing file handlers
+            if isinstance(hdlr,logging.FileHandler): #fixed two typos here
+                log.removeHandler(hdlr)
+
+        file_handler_custom = logging.FileHandler(kwargs['logfile'])
+        file_handler_custom.setLevel(logging.DEBUG)
+        file_handler_custom.setFormatter(formatter)
+        log.addHandler(file_handler_custom)
+    
+    try:
+        client, key = _get_session(server)
+    except Exception as exc:  # pylint: disable=broad-except
+        err_msg = 'Exception raised when connecting to spacewalk server ({0}): {1}'.format(server, exc)
+        log.error(err_msg)
+        return {'Error': err_msg}
+    
+    if target_system:
+        
+        if target_system != "":
+            try:
+                target_system_id = _get_systemid(client, key, target_system)
+            except Exception as exc:  # pylint: disable=broad-except
+                err_msg = 'Exception raised trying to find minion id ({0}): {1}'.format(target_system, exc)
+                log.error(err_msg)
+                ret[target_system] = {'Error': err_msg}
+            
+            ret1 = _schedule_pkg_refresh_job(client, key, target_system_id, target_system, kwargs)
+            ret["refresh_package_list"].append(ret1)            
+    
+    if groups:
+        print("Query systems in the SUMA groups.")
+        for g in groups:
+            try:
+                systems_in_groups = client.systemgroup.listSystemsMinimal(key, g)
+                all_systems_in_groups += systems_in_groups              
+            except Exception as exc:  # pylint: disable=broad-except
+                err_msg = 'Exception raised trying to get active minion list from group ({0}): {1}'.format(g, exc)
+                log.error(err_msg)
+
+    suma_minion_list = []
+    if len(all_systems_in_groups) == 0:
+        ret["comment"] = "No minion in SUMA groups found. Exit."
+        return ret
+        
+    for s in list(all_systems_in_groups):
+        if target_system == s["name"]:
+            all_systems_in_groups.remove(s)
+            continue
+        else:
+            suma_minion_list.append(s["name"])
+    
+    if len(all_systems_in_groups) > 0:
+        if kwargs.get("timeout") and kwargs.get("gather_job_timeout"):
+            online_minion_list = _minion_presence_check(suma_minion_list, timeout=kwargs['timeout'], 
+                                                 gather_job_timeout=kwargs['gather_job_timeout'])
+        else:
+            online_minion_list = _minion_presence_check(suma_minion_list)
+
+    for s in list(all_systems_in_groups):
+        for minion in online_minion_list["up"]:
+            if s["name"] == minion:
+                all_to_refresh_minions[s["name"]] = s['id']
+    #print(all_to_refresh_minions)
+
+    for minion_name, systemid in all_to_refresh_minions.items():
+            ret1 = _schedule_pkg_refresh_job(client, key, systemid, minion_name, kwargs)
+            ret["refresh_package_list"].append(ret1)
+
+    if 'logfile' in kwargs:
+        _write_logs(ret, logfile=kwargs['logfile'])
+    else:
+        _write_logs(ret)
+    
+    #print("ret[Patching]: {}".format(ret["Patching"]))
+    # below we remove all elements from list if val not dict
+    if len(ret["refresh_package_list"]) > 0:
+        for system in list(ret["refresh_package_list"]):
+            if isinstance(system, dict):
+                for key, val in system.items():
+                    if not isinstance(val, dict):
+                        ret["refresh_package_list"].remove(system)
+                    if not "Pkg refresh Job ID" in val.keys():
+                        ret["refresh_package_list"].remove(system)
+            else:
+                ret["refresh_package_list"].remove(system)
+
+    return ret
