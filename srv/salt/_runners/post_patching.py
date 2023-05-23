@@ -40,7 +40,18 @@ def _minion_presence_check(minion_list, timeout=2, gather_job_timeout=10):
     minion_status_list = runner.cmd('manage.status', ["tgt={}".format(minion_list), "tgt_type=list", timeout, gather_job_timeout], print_event=False)
 
     return minion_status_list
-    
+
+def _all_minion_presence_check(timeout=2, gather_job_timeout=10):
+    print("checking minion presence from all systems...")
+    runner = salt.runner.RunnerClient(__opts__)
+    timeout = "timeout={}".format(timeout)
+    gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout)
+    print("the timeouts {} {}".format(timeout,gather_job_timeout))
+    """ timeout = "timeout={}".format(timeout)
+    gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout) """
+    minion_status_list = runner.cmd('manage.status', ["tgt=*", "tgt_type=glob", timeout, gather_job_timeout], print_event=False)
+
+    return minion_status_list
 
 def start(filename, state_name="", presence_check=False):
     
@@ -175,62 +186,75 @@ def set_pl(file, patchlevel, presence_check=False):
 
     return ret_sync
 
-def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", presence_check=False):
+def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", all_server=False, presence_check=False):
     ret = dict()
-    if not os.path.exists(file):
-        ret["input_file"] = "File Not found: {}.".format(file)
-        return ret
-
-    with open(file) as f:
-        data = yaml.load(f, Loader=yaml.FullLoader)
-
     minion_list = []
-    for a, b in data.items():
-        if presence_check:
-            minion_status_list = _minion_presence_check(b, timeout=2, gather_job_timeout=10)
-            b = minion_status_list["up"]
-        
-        if len(minion_list) == 0:
-            ret["comment"] = "no minions found."
+    if not all_server:
+        if not os.path.exists(file):
+            ret["input_file"] = "File Not found: {}.".format(file)
             return ret
+
+        with open(file) as f:
+            data = yaml.load(f, Loader=yaml.FullLoader)
+        
+        for a, b in data.items():
+            if presence_check:
+                minion_status_list = _minion_presence_check(b, timeout=2, gather_job_timeout=10)
+                minion_list = minion_status_list["up"]
+        
+        
+    else:
+        minion_status_list = _all_minion_presence_check(timeout=2, gather_job_timeout=10)
+        minion_list = minion_status_list["up"]
+
+    if len(minion_list) == 0:
+        ret["comment"] = "no minions found."
+        return ret
+    
     
     local = salt.client.LocalClient()
-    #print("minion_list: {}".format(list(minion_list)))
+    print("minion_list: {}".format(list(minion_list)))
     ret_sync = []
     print("sync grains files to minions.")
-    ret1 = local.cmd_batch(list(b), 'saltutil.sync_grains', tgt_type="list", batch='10%')
+    ret1 = local.cmd_batch(list(minion_list), 'saltutil.sync_grains', tgt_type="list", batch='10%')
     for result in ret1:
         ret_sync.append(result)
         ret_sync.remove(result)
 
     ret_refresh = []
     print("refresh grains on minions.")
-    ret2 = local.cmd_batch(list(b), 'saltutil.refresh_grains', tgt_type="list", batch='10%')
+    ret2 = local.cmd_batch(list(minion_list), 'saltutil.refresh_grains', tgt_type="list", batch='10%')
     for result in ret2:
         ret_refresh.append(result)
         ret_refresh.remove(result)
     
     print("Collect OS Version from minions.")
     ret["OS_Version"] = []
-    ret3 = local.cmd_batch(list(b), 'grains.get', ["oscodename"], tgt_type="list", batch='10%')
+    ret3 = local.cmd_batch(list(minion_list), 'grains.get', ["oscodename"], tgt_type="list", batch='10%')
     for result in ret3:
         ret["OS_Version"].append(result)
     
+    print("Collect master plan from minions.")
+    ret["Master_Plan"] = []
+    ret_masterplan = local.cmd_batch(list(minion_list), 'grains.get', ["srvinfo:INFO_MASTERPLAN"], tgt_type="list", batch='10%')
+    for result in ret_masterplan:
+        ret["Master_Plan"].append(result)
+
     print("Collect Patch Level from minions.")
     ret["Patch_Level"] = []
-    ret4 = local.cmd_batch(list(b), 'grains.get', ["root_info:SYSPL"], tgt_type="list", batch='10%')
+    ret4 = local.cmd_batch(list(minion_list), 'grains.get', ["root_info:SYSPL"], tgt_type="list", batch='10%')
     for result in ret4:
         ret["Patch_Level"].append(result)
     
     print("Collect kernel version from minions.")
     ret["kernel"] = []
-    ret5 = local.cmd_batch(list(b), 'grains.get', ["kernelrelease"], tgt_type="list", batch='10%')
+    ret5 = local.cmd_batch(list(minion_list), 'grains.get', ["kernelrelease"], tgt_type="list", batch='10%')
     for result in ret5:
         ret["kernel"].append(result)
     
     print("Collect uptime from minions.")
     ret["uptime"] = []
-    ret6 = local.cmd_batch(list(b), 'cmd.run', ["uptime"], tgt_type="list", batch='10%')
+    ret6 = local.cmd_batch(list(minion_list), 'cmd.run', ["uptime"], tgt_type="list", batch='10%')
     for result in ret6:
         if isinstance(result, dict):
             for a, b in result.items():
@@ -268,6 +292,14 @@ def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", pres
                     for host, value in s.items():
                         #final_ret[host] = {}
                         final_ret[host].update({"OS_Version": value})
+        
+        if x == "Master_Plan":
+            if len(y) > 0:
+                for s in y:
+                    for host, value in s.items():
+                        #final_ret[host] = {}
+                        final_ret[host].update({"Master_Plan": value})
+                        
         if x == "Patch_Level":
             if len(y) > 0:
                 for s in y:
@@ -282,8 +314,8 @@ def _write_csv(dictionary, csv_file="/srv/pillar/sumapatch/post_patching_report.
     
     with open(csv_file, 'w+', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(['Server Name', 'OS Version', 'Patch Level', 'Kernel Version', 'Uptime'])
+        writer.writerow(['Server Name', 'OS Version', 'Master_Plan', 'Patch Level', 'Kernel Version', 'Uptime'])
         for server_name, details in dictionary.items():
-            writer.writerow([server_name, details['OS_Version'], details['Patch_Level'], details['kernel'], details['uptime']])
+            writer.writerow([server_name, details['OS_Version'], details['Master_Plan'], details['Patch_Level'], details['kernel'], details['uptime']])
     return csv_file
     
