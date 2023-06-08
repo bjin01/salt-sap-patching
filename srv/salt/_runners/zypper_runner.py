@@ -81,7 +81,7 @@ def run(state_name="", timeout=2, gather_job_timeout=10):
     final_minion_list["zypper_erros"] = []
     final_minion_list["zypper_refresh_problem_systems"] = []
 
-    zypper_refresh_check = local.cmd_iter_no_block(list(minion_list['up']), 'state.apply', [state_name], tgt_type="list")
+    zypper_refresh_check = local.cmd_batch(list(minion_list['up']), 'state.apply', [state_name], tgt_type="list", batch='10%')
     for w in zypper_refresh_check:
         if w:
             for a, b in w.items():
