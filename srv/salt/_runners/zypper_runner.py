@@ -41,7 +41,30 @@ def _find_stdout(dictionary, mykey="retcode"):
 
 
 def run(state_name="", timeout=2, gather_job_timeout=10):
+    """
+    This function executes a state and returns failed state stdout and a list of systems which failed.
+    The function will first detect online minions and then run the state on the currently online minions only.
     
+    CLI Example::
+      
+        salt-run zypper_runner.run state_name="orch.check_zypper_ref" timeout=2 gather_job_timeout=10
+
+    In the given sls file a state module function is used to run e.g. a script and returns output back.
+
+    e.g. orch.check_zypper_ref.sls:
+    
+    check_zypper_refresh:
+      cmd.script:
+        - source: salt://orch/zypper/check_zypper_refresh.sh
+        - cwd: /
+        - stateful: True
+        - success_stderr:
+          - ERROR
+          - error
+        - success_stdout:
+          - "All is good"
+
+    """
     final_minion_list = dict()
     #minion_list = ["pxesap01.bo2go.home", "pxesap02.bo2go.home", "jupiter.bo2go.home", "saturn"]
     #minion_list = ["jupiter.bo2go.home", "saturn", "pxesap01.bo2go.home"]
