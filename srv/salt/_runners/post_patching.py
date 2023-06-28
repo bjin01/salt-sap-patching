@@ -186,6 +186,37 @@ def set_pl(file, patchlevel, presence_check=False):
 
     return ret_sync
 
+def _get_staging_value(result):
+    staging_value = {}
+    print("the result is {}".format(result))
+    if isinstance(result, dict):
+        for a, b in result.items():
+            hostname = a
+            values = []
+            if len(b) > 0:
+                values = str(b).split("-")
+            else:
+                staging_value[hostname] = "No masterplan found"
+                return staging_value
+
+            # Check if there are at least 3 values and the 3rd value has at least 2 letters
+            if len(values) >= 3 and len(values[2]) == 2:
+                third_value_second_letter = values[2][1]  # Get the 2nd letter of the 3rd value
+
+                # Check the letter and assign the corresponding output
+                if third_value_second_letter == 'a':
+                    staging_value[hostname] = "Abnahme"
+                elif third_value_second_letter == 't':
+                    staging_value[hostname] = "Test"
+                elif third_value_second_letter == 'p':
+                    staging_value[hostname] = "Prod"
+                else:
+                    staging_value[hostname] = third_value_second_letter
+            else:
+                staging_value[hostname] = "Invalid input format."
+
+    return staging_value
+
 def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", all_server=False, presence_check=False):
     ret = dict()
     minion_list = []
@@ -236,9 +267,13 @@ def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", all_
     
     print("Collect master plan from minions.")
     ret["Master_Plan"] = []
+    ret["Staging"] = []
     ret_masterplan = local.cmd_batch(list(minion_list), 'grains.get', ["srvinfo:INFO_MASTERPLAN"], tgt_type="list", batch='10%')
     for result in ret_masterplan:
+        ret["Staging"].append(_get_staging_value(result))
         ret["Master_Plan"].append(result)
+    
+    print("ret[Staging] is {}".format(ret["Staging"]))
 
     print("Collect Patch Level from minions.")
     ret["Patch_Level"] = []
@@ -299,6 +334,13 @@ def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", all_
                     for host, value in s.items():
                         #final_ret[host] = {}
                         final_ret[host].update({"Master_Plan": value})
+        
+        if x == "Staging":
+            if len(y) > 0:
+                for s in y:
+                    for host, value in s.items():
+                        #final_ret[host] = {}
+                        final_ret[host].update({"Staging": value})
                         
         if x == "Patch_Level":
             if len(y) > 0:
