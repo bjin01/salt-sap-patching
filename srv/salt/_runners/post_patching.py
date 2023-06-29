@@ -188,7 +188,7 @@ def set_pl(file, patchlevel, presence_check=False):
 
 def _get_staging_value(result):
     staging_value = {}
-    print("the result is {}".format(result))
+    
     if isinstance(result, dict):
         for a, b in result.items():
             hostname = a
@@ -265,15 +265,13 @@ def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", all_
     for result in ret3:
         ret["OS_Version"].append(result)
     
-    print("Collect master plan from minions.")
+    print("Collect master plan and staging info from minions.")
     ret["Master_Plan"] = []
     ret["Staging"] = []
     ret_masterplan = local.cmd_batch(list(minion_list), 'grains.get', ["srvinfo:INFO_MASTERPLAN"], tgt_type="list", batch='10%')
     for result in ret_masterplan:
         ret["Staging"].append(_get_staging_value(result))
         ret["Master_Plan"].append(result)
-    
-    print("ret[Staging] is {}".format(ret["Staging"]))
 
     print("Collect Patch Level from minions.")
     ret["Patch_Level"] = []
