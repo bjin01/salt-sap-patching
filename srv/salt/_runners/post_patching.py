@@ -293,8 +293,11 @@ def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", all_
     for result in ret6:
         if isinstance(result, dict):
             for a, b in result.items():
-                val = b.split(",", 1)
-                result = {a: val[0]}
+                if isinstance(b, str):
+                    val = b.split(",", 1)
+                    result = {a: val[0]}
+                else:
+                    result = {a: "no result"}
             ret["uptime"].append(result)
         else:
             ret["uptime"].append(result)
