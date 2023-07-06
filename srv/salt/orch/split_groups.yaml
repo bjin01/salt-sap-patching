@@ -1,0 +1,15 @@
+existing_suma_groups:
+  - P-Basis-suma-aaa
+  - testgrp
+
+target_groups:
+  - a_group1: 
+      email: mk@bit.admin.ch
+      t7user: t7uia
+  - b_group2: 
+      email: ab@bit.admin.ch
+      t7user: t7iow
+
+template_sls:
+  - test2.sls
+
