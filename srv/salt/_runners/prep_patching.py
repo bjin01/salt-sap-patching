@@ -17,7 +17,7 @@ import os
 
 import subprocess
 import salt.client
-from salt.ext import six
+import six
 from datetime import datetime,  timedelta
 
 from typing import Any, TYPE_CHECKING

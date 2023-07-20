@@ -39,7 +39,7 @@ import salt.client
 import time
 
 # Import third party libs
-from salt.ext import six
+import six
 
 from datetime import datetime,  timedelta
 from typing import Any, TYPE_CHECKING

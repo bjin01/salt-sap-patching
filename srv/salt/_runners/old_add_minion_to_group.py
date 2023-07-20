@@ -30,7 +30,7 @@ import atexit
 import logging
 import os
 import salt.client
-from salt.ext import six
+import six
 import yaml
 
 from datetime import datetime,  timedelta

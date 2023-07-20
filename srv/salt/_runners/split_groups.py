@@ -16,7 +16,7 @@ import logging
 import os
 import time
 import yaml
-from salt.ext import six
+import six
 from cryptography.fernet import Fernet
 import random
 
