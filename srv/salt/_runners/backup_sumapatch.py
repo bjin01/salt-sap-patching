@@ -404,10 +404,10 @@ def patch(target_system=None, groups=None, **kwargs):
     log.info("final qualified minions: {}".format(all_to_patch_minions))
     print("Start patch job scheduling.")
     ret1 = _patch_single(client, key, all_to_patch_minions, kwargs)
-    ret["Patching"] += ret1["Patching"]
+    ret["Patching"] = ret1["Patching"]
 
-    ret["Full_Update_Job_ID"] = []
-    ret["Full_Update_Job_ID"] = ret1["Full_Update_Job_ID"]
+    """ ret["Full_Update_Job_ID"] = dict()
+    ret["Full_Update_Job_ID"] = ret1["Full_Update_Job_ID"] """
     """ for minion_name, systemid in all_to_patch_minions.items():
             ret1 = _patch_single(client, key, systemid, minion_name, kwargs) """
             
@@ -426,7 +426,7 @@ def patch(target_system=None, groups=None, **kwargs):
 
 def _send_to_jobcheck(results):
     print("see ret {}".format(results))
-    uri = 'http://127.0.0.1:12345/jobchecker'
+    uri = 'http://192.168.122.1:12345/jobchecker'
     body = results
     headers = {}
     method = 'POST'
@@ -536,15 +536,12 @@ def _patch_single(client, key, allminions, kwargs):
             for target_system_name, target_system_id in allminions.items():
                 
                 ret_single_system[target_system_name].update({"Patch Job ID is": patch_job, "event send": True})
-                ret["Patching"].append({target_system_name: ret_single_system[target_system_name]})
                 all_scheduled_minions.append(target_system_name)
                 
-            ret["Full_Update_Job_ID"] = []
-            ret["Full_Update_Job_ID"].append({patch_job: all_scheduled_minions})
-            #print("ret_single_system {}".format(ret_single_system))
-            
-
-            print("ret is: {}".format(ret))
+            ret["Full_Update_Job_ID"][patch_job] = []
+            ret["Full_Update_Job_ID"][patch_job] = all_scheduled_minions
+            ret["Patching"] = ret_single_system
+            #print("ret is: {}".format(ret))
         else:
             """ for target_system_name, target_system_id in allminions.items():
                 ret[target_system_name].update({"error_message": err_msg}) """
