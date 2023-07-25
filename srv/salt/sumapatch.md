@@ -4,6 +4,14 @@ sumapatch is a salt runner module that uses SUSE Manager / [Uyuni](https://www.u
 
 Tested on: SUSE Manager 4.3 x86 on SLES15SP4 with python v3.6
 
+## Updates:
+To reduce API load another SUSE Manager API Call replaces schedulePackageInstall.
+New API Method being used is __schedulePackageUpdate__. This method simply schedules for every targeted system a "full package update job" and triggers salt minion to execute "pkg.uptodate" which equals to ```zypper update```
+
+This new method does not need a list of to-be-updated packages and processing hundreds of minions using this salt runner module will be faster.
+
+The scheduled job will be one Job ID with all targeted salt-minions. This information will be further passed to jobchecker for [job monitoring](https://github.com/bjin01/jobmonitor).
+
 ## __Features included within the module:__
 * schedule patch jobs based on groups defined in SUSE Manager
 * allows setting delay time for job start 

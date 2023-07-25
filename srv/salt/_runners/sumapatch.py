@@ -36,7 +36,6 @@ import json
 import copy
 import subprocess
 import salt.client
-#from salt.ext import six
 import six
 from datetime import datetime,  timedelta
 
@@ -585,7 +584,7 @@ def reboot(reboot_list=None, **kwargs):
                 jobchecker_timeout: 20
                 jobchecker_emails:
                     - max.mustermann@mydom.eu
-                t7user:t7udp
+                t7user: t7udp
                 
     '''
     status = ""
