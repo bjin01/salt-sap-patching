@@ -65,7 +65,7 @@ def snapper_create(bundle="no-bundle", type="single", cleanup_algorithm="number"
     ret = dict()
     btrfs_version = _check_btrfs()
     if "version" in btrfs_version["btrfs"].keys():
-        description = "PMGR initial snapshot {}".format(bundle)
+        description = "SUMA initial snapshot {}".format(bundle)
         ret["btrfs_version"] = btrfs_version["btrfs"]["version"]
         command_arguments = ['create', '-d', description, '-c', cleanup_algorithm, '-t', type, '-u', userdata, '-p']
         command_output = _execute_snapper_command(command_arguments)
