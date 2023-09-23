@@ -30,7 +30,7 @@ from cryptography.fernet import Fernet
 import atexit
 import logging
 import os
-import urllib3
+import re
 import yaml
 import json
 import copy
@@ -211,15 +211,16 @@ def _get_ident_info(client, key, sid):
         log.error(err_msg)
     
     if len(ident_return) > 0:
-        for i in ident_return:
+        """ for i in ident_return:
             for k, v in i.items():
                 print("{}: {}".format(k, v))
-                print()
+                print() """
         return ident_return
 
     return
 
-def list_targets(target_system=None, **kwargs):
+
+def list_targets(target_system=None, groups=None, **kwargs):
     '''
     Call suse manager / uyuni xmlrpc api to list service pack migration targets for the given salt-minion name
 
@@ -231,14 +232,16 @@ def list_targets(target_system=None, **kwargs):
     .. code-block:: bash
 
         salt-run get_spmigration_targets.list_targets target_system=minion_name
+        salt-run get_spmigration_targets.list_targets groups="a_group1 testgrp"
 
-    
     '''
 
     suma_config = _get_suma_configuration()
     server = suma_config["servername"]
     ret = dict()
     ret[target_system] = []
+    ret["targets from groups"] = {}
+    ret["final_unique_targets"] = []
 
     try:
         client, key = _get_session(server)
@@ -247,6 +250,26 @@ def list_targets(target_system=None, **kwargs):
         log.error(err_msg)
         return {'Error': err_msg}
     
+    all_systems_in_groups = []
+    if groups:
+        groups_list = groups.split()
+        for g in groups_list:
+            print("Query systems in the SUMA groups. {}".format(groups))
+            try:
+                print("group name: {}".format(g))
+                systems_in_groups = client.systemgroup.listSystemsMinimal(key, g)
+                all_systems_in_groups += systems_in_groups              
+            except Exception as exc:  # pylint: disable=broad-except
+                err_msg = 'Exception raised trying to get system list from group ({0}): {1}'.format(g, exc)
+                log.error(err_msg)
+    
+    for b in all_systems_in_groups:
+        if b['id']:
+            ret[b['name']] = _get_ident_info(client, key, b['id'])
+            #print("output {}".format(ret[b['name']]))
+            ret["targets from groups"][b['name']] = []
+            ret["targets from groups"][b['name']] = ret[b['name']]
+        
     if target_system:
         try:
             target_system_id = _get_systemid(client, key, target_system)
@@ -258,9 +281,83 @@ def list_targets(target_system=None, **kwargs):
 
         if target_system_id:
             ret[target_system] = _get_ident_info(client, key, target_system_id)
-            return ret
-        else:
-            return
+
+    ident_list = []
+    final_unique_list = []
+    for a, b in ret["targets from groups"].items():
+        #print("system: {}".format(a))
+        #print("\tident: {}".format(b))
+        if b:
+            for s in b:
+                #print("s is {}".format(s))
+                entire_value = "ident: {}, friendly: {}".format(s['ident'], s['friendly'])
+                ident_list.append(entire_value)
+
+        
+        final_unique_list = list(set(ident_list))
+        
+    ret['final_unique_targets'] = final_unique_list
+
+
+
+    return ret['final_unique_targets']
 
     
 
+def delete_groups():
+    '''
+    Call suse manager / uyuni xmlrpc api to delete "spmigration_t7" groups.
+
+    Use cae:
+    Use this salt-run function to delete all existing spmigration_t7* groups that were automatically created by spmigration.
+    
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt-run get_spmigration_targets.list_targets target_system=minion_name
+        salt-run get_spmigration_targets.list_targets groups="a_group1 testgrp"
+
+    '''
+    group_name = "spmigration_t7"
+    suma_config = _get_suma_configuration()
+    server = suma_config["servername"]
+
+    try:
+        client, key = _get_session(server)
+    except Exception as exc:  # pylint: disable=broad-except
+        err_msg = 'Exception raised when connecting to SUSE Manager server ({0}): {1}'.format(server, exc)
+        log.error(err_msg)
+        return {'Error': err_msg}
+    
+    allgroups = []
+    try:
+        allgroups = client.systemgroup.listAllGroups(key)          
+    except Exception as exc:  # pylint: disable=broad-except
+        err_msg = 'Exception raised trying to get list of groups: {1}'.format(exc)
+        log.error(err_msg)
+
+    
+    if len(allgroups) > 0:
+        found_matching_group = False    
+        for s in allgroups:
+            result = re.findall(r"^{}".format(group_name), s['name'])
+            if len(result) > 0:
+                found_matching_group = True
+                print("delete group {}".format(s['name']))
+                try:
+                    _ = client.systemgroup.delete(key, s['name'])    
+                except Exception as exc:  # pylint: disable=broad-except
+                    err_msg = 'Exception raised when deleting group {0}: {1}'.format(s['name'], exc)
+                    log.error(err_msg)
+                    return {'Error': err_msg}
+        
+        if not found_matching_group:
+            print("No matching group found.")
+
+        return 
+    else:
+        print("No group found. Exit")
+
+
+    return

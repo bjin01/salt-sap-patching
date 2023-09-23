@@ -1,0 +1,42 @@
+groups:
+- testgrp
+- a_group1
+delay: 1
+timeout: 3
+gather_job_timeout: 15
+logfile: "/var/log/patching/sumapatching.log"
+salt_master_address: 192.168.122.23
+salt_api_port: 8000
+salt_user: mysalt
+salt_password: mytest
+salt_diskspace_grains_key: btrfs:for_patching
+salt_diskspace_grains_value: ok
+salt_no_upgrade_exception_key: no_upgrade
+salt_no_upgrade_exception_value: 'true'
+salt_prep_state: orch.prepatch_states
+salt_post_state: orch.postpatch_states
+jobchecker_timeout: 20
+reboot_timeout: 50
+jobchecker_emails:
+- bo.jin@jinbo01.com
+- bo.jin@suseconsulting.ch
+t7user: t7udp
+authentication_token: R2bfp223Qsk-pX970Jw8tyJUChT4-e2J8anZ4G4n4IM=
+tracking_file_directory: "/var/log/sumapatch/"
+patch_level: 2023-Q6
+assigne_channels:
+- assigne_channel:
+    current_base_channel: mytest-prd-sle-product-sles_sap15-sp4-pool-x86_64
+    new_base_prefix: mytest-test-
+- assigne_channel:
+    current_base_channel: mysle15sp3-prd-sle-product-sles15-sp3-pool-x86_64
+    new_base_prefix: ''
+products:
+- product:
+    ident: '1565,1576,1609,1592,1572,1616,1580,935,1633,1614'
+    name: SUSE Linux Enterprise Server for SAP Applications 15 SP5 x86_64
+    base_channel_label: mysap15sp5-test-sle-product-sles_sap15-sp5-pool-x86_64
+- product:
+    ident: '1396,1423,1431,1411,1415,935,1403,1438'
+    name: SUSE Linux Enterprise Server 15 SP4 x86_64
+    base_channel_label: sle-product-sles15-sp4-pool-x86_64
