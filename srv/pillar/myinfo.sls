@@ -1,2 +1,2 @@
-mypassword: bbb
+mypassword: aaa
 myuser: test

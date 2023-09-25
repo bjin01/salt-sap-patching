@@ -1,6 +1,6 @@
 some:
   myuser: user1
-  mypassword: bbb
+  mypassword: aaa
   list1:
     - aaa
     - based
