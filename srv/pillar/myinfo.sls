@@ -1,0 +1,2 @@
+mypassword: aaa
+myuser: test

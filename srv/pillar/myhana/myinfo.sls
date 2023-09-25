@@ -1,2 +1,0 @@
-mypassword: abcd
-myuser: test
