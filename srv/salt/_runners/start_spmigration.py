@@ -32,7 +32,28 @@ def run(config="", api_server="127.0.0.1", api_port="12345"):
     
     if json_data:
         #print(json_data)
-        url = "http://{}:{}/spmigration".format(api_server, api_port)
+        url = "http://{}:{}/pkg_update".format(api_server, api_port)
+        headers = {
+        'Content-Type': 'application/json'
+        }
+        response = requests.request("POST", url, headers=headers, data=json_data)
+        print(response.text)
+    else:
+        print(f"Error: The file '{config}' was not found.")
+    
+
+    return
+
+def add_minions(config="", api_server="127.0.0.1", api_port="12345"):
+    if config == "":
+        print("No config file provided.\n")
+        return 
+    else:
+        json_data = _convert_yaml_to_json(config)
+    
+    if json_data:
+        #print(json_data)
+        url = "http://{}:{}/pkg_update_by_list".format(api_server, api_port)
         headers = {
         'Content-Type': 'application/json'
         }
