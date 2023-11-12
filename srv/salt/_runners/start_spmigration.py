@@ -38,10 +38,10 @@ def run(config="", api_server="127.0.0.1", api_port="12345"):
         }
         response = requests.request("POST", url, headers=headers, data=json_data)
         print(response.text)
+        return "The workflow to update systems in SUSE Manager has started. \nYou will get email notifications. \nOr journalctl -u     suma-jobchecker.service -f to watch logs"
     else:
         print(f"Error: The file '{config}' was not found.")
-    
-
+        return "Error: The file '{config}' was not found."
     return
 
 def add_minions(config="", api_server="127.0.0.1", api_port="12345"):
@@ -59,8 +59,8 @@ def add_minions(config="", api_server="127.0.0.1", api_port="12345"):
         }
         response = requests.request("POST", url, headers=headers, data=json_data)
         print(response.text)
+        return "The workflow to update systems in SUSE Manager has started. \nYou will get email notifications. \nOr journalctl -u     suma-jobchecker.service -f to watch logs"
     else:
         print(f"Error: The file '{config}' was not found.")
-    
-
+        return "Error: The file '{config}' was not found."
     return
