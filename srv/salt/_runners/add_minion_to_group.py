@@ -283,9 +283,38 @@ def _join(systems):
             err_msg = 'Exception raised when trying to list all groups: {}'.format(exc)
             log.error(err_msg)
 
+        all_admins = []
         
         for existing_group in allgroups:
             if "created by add_minion_to_group" in existing_group['description']:
+                try:
+                    admins_in_group = client.systemgroup.listAdministrators(key, existing_group['name'])
+                except Exception as exc:  # pylint: disable=broad-except
+                    err_msg = 'Exception raised when trying to get admins from group ({0}): {1}'.format(existing_group['name'], exc)
+                    log.error(err_msg)
+
+
+                if len(admins_in_group) > 0:
+                    #print("admins {} in {}".format(admins_in_group, existing_group['name']))
+                    for admin in admins_in_group:
+                        if admin['login'] != "":
+                            try:
+                                user_roles = client.user.listRoles(key, admin['login'])
+                            except Exception as exc:  # pylint: disable=broad-except
+                                err_msg = 'Exception raised when trying to get user roles ({0}): {1}'.format(admin['login'], exc)
+                                log.error(err_msg)
+
+                            if len(user_roles) > 0:
+                                #print("{} roles {}".format(admin['login'], user_roles))
+                                if "org_admin" not in user_roles:
+                                    admins_groups = dict()
+                                    admins_groups[existing_group['name']] = admin['login']
+                                    all_admins.append(admins_groups)
+                            else:
+                                admins_groups = dict()
+                                admins_groups[existing_group['name']] = admin['login']
+                                all_admins.append(admins_groups)
+
                 try:
                     _ = client.systemgroup.delete(key, existing_group['name'])
                     print("Delete group {}, no worries we will create it again.".format(existing_group['name']))
@@ -294,6 +323,7 @@ def _join(systems):
                     log.error(err_msg)
         
         for group in systems.keys():
+            allowed_admins = []
             description = "created by add_minion_to_group salt runner module."
             try:
                 _ = client.systemgroup.create(key, group, description)
@@ -301,6 +331,20 @@ def _join(systems):
             except Exception as exc:  # pylint: disable=broad-except
                 err_msg = 'Exception raised when trying to creating group ({0}): {1}'.format(group, exc)
                 log.error(err_msg)
+
+            for a in all_admins:
+                for a_group, admin in a.items():
+                    if admin != "":
+                        if a_group == group:
+                            print("Allow {} to access {}".format(admin, group))
+                            allowed_admins.append(admin)
+
+            if len(allowed_admins) > 0:
+                try:
+                    add_admins = client.systemgroup.addOrRemoveAdmins(key, group, allowed_admins, 1)
+                except Exception as exc:  # pylint: disable=broad-except
+                    err_msg = 'Exception raised when trying to add admins to group ({0}): {1}'.format(group, exc)
+                    log.error(err_msg)
             
         for group in systems.keys():
             print("Will add {} to group {}".format(systems[group], group))
