@@ -93,15 +93,15 @@ def run(**kwargs):
                 data_set[headers[i]] = fs[i]
             #print(data_set)
         
-            if isinstance(lv_data, str):
+            if not isinstance(lv_data, dict):
                 for lvm_head in lvm_headers:
-                    data_set[lvm_head] = ''
+                    data_set[lvm_head] = 'n/a'
                 for vg_head in vg_headers:
-                    data_set[vg_head] = ''
+                    data_set[vg_head] = 'n/a'
                 for pv_head in pv_headers:
-                    data_set[pv_head] = ''
+                    data_set[pv_head] = 'n/a'
             else:
-                 if len(lv_data["report"][0]["lv"]) > 0:
+                if len(lv_data["report"][0]["lv"]) > 0:
                     for l in lv_data["report"][0]["lv"]:
                         if l['vg_name'] != "" and l['lv_name'] != "":
                             lv_path = "/dev/mapper/{}-{}".format(l['vg_name'], l['lv_name'])
@@ -120,7 +120,20 @@ def run(**kwargs):
                                 data_set['pv_fmt'] = pv_result['pv_fmt']
                                 data_set['pv_sizes'] = pv_result['pv_sizes']
                                 data_set['pv_free'] = pv_result['pv_free']
-
+                            else:
+                                for lvm_head in lvm_headers:
+                                    data_set[lvm_head] = 'n/a'
+                                for vg_head in vg_headers:
+                                    data_set[vg_head] = 'n/a'
+                                for pv_head in pv_headers:
+                                    data_set[pv_head] = 'n/a'
+                else:
+                    for lvm_head in lvm_headers:
+                        data_set[lvm_head] = 'n/a'
+                    for vg_head in vg_headers:
+                        data_set[vg_head] = 'n/a'
+                    for pv_head in pv_headers:
+                        data_set[pv_head] = 'n/a'
                                 
             data_list.append(data_set)
         
@@ -139,7 +152,7 @@ def run(**kwargs):
                         if not match_found:
                             data_set1["host"] = p
                             for i in range(len(headers)):
-                                data_set1[headers[i]] = ""
+                                data_set1[headers[i]] = "n/a"
                             data_set1['lv_name'] = l['lv_name']
                             data_set1['lv_size'] = l['lv_size']
                             data_set1['vg_name'] = l['vg_name']
@@ -163,7 +176,7 @@ def run(**kwargs):
         
                             
     #print(data_list)
-
+    _write_json(data_list)
     _write_csv(data_list, file="/tmp/diskinfo.csv")
     result.append(data_set)
 
@@ -203,6 +216,10 @@ def _get_pv_info(vg_name, pv_data):
             pv_info['pv_sizes'] = pv_sizes
             pv_info['pv_free'] = pv_frees
     return pv_info
+
+def _write_json(mydict, file="/tmp/diskinfo.json"):
+    with open(file, 'w') as convert_file: 
+     convert_file.write(json.dumps(mydict))
 
 def _write_csv(final_list, file="/tmp/diskinfo.csv"):
     print("Writting to csv file!")
