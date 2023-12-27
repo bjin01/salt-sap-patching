@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-rbsA2VBKQhggwzxH7pPCaAqO46MgnOM80zW1RWuH61DGLwZJEdK2Kadq2F9CUG65" crossorigin="anonymous">
+    <link rel="stylesheet" href="/report/diskinfo.css">
+    <title>Document</title>
+</head>
+<body>
+    <h1 class="h1">SLES Disk Report</h1>  
+    <p class="text-justify">Filesystem, disk and lvm information. Collected by: <code>salt-run lvm_report.run</code> on SUSE Manager server.</p>
+    <div class="input-group mb-3">
+        <div class="input-group-prepend">
+          <span class="input-group-text" id="basic-addon1">search</span>
+        </div>
+        <input type="text" class="form-control" aria-label="host" aria-describedby="basic-addon1" id="myInput" onkeyup="myFunction()" placeholder="host" title="Type in a name">
+    </div>
+    <div class="table-responsive-lg" id="myDiv"></div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-kenU1KFdBIe4zVF0s0G1M5b4hcpxyD9F7jL+jjXkk+Q2h455rYXK/7HAuoJl+0I4" crossorigin="anonymous"></script>
+    <script src="/report/diskinfo.js"></script>
+</body>
+</html>

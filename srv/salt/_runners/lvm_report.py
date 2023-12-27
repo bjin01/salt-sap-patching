@@ -57,6 +57,9 @@ def run(**kwargs):
     system_diskinfo_list = []
     result = []
     data_list = []
+    if len(present_minions) == 0:
+        return "No online minions detected."
+    
     for p in present_minions:
         print(p)
         # Run the command and capture the output
@@ -176,8 +179,17 @@ def run(**kwargs):
         
                             
     #print(data_list)
-    _write_json(data_list)
-    _write_csv(data_list, file="/tmp/diskinfo.csv")
+    if "json_file" in kwargs:
+        _write_csv(data_list, kwargs["json_file"])
+    else:
+        _write_json(data_list)
+
+    if "csv_file" in kwargs:
+        _write_csv(data_list, kwargs["csv_file"])
+    else:
+        _write_csv(data_list, file="/tmp/diskinfo.csv")
+    
+    
     result.append(data_set)
 
 
