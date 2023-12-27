@@ -9,7 +9,8 @@
 </head>
 <body>
     <h1 class="h1">SLES Disk Report</h1>  
-    <p class="text-justify">Filesystem, disk and lvm information. Collected by: <code>salt-run lvm_report.run</code> on SUSE Manager server.</p>
+    <p class="text-md-start">Filesystem, disk and lvm information. Collected by:</p>
+    <p class="text-md-start"><code>salt-run lvm_report.run csv_file=/tmp/diskinfo.csv json_file=/srv/www/htdocs/report/diskinfo.json</code></p>
     <div class="input-group mb-3">
         <div class="input-group-prepend">
           <span class="input-group-text" id="basic-addon1">search</span>
