@@ -169,10 +169,8 @@ def run(**kwargs):
                             data_set1['pv_devices'] = pv_result['pv_devices']
                             data_set1['pv_fmt'] = pv_result['pv_fmt']
                             data_set1['pv_sizes'] = pv_result['pv_sizes']
-                            data_set1['pv_free'] = pv_result['pv_free']
-
-                            
-                        data_list.append(data_set1)
+                            data_set1['pv_free'] = pv_result['pv_free'] 
+                            data_list.append(data_set1)
         
         
         #print(output_lvs[p])
@@ -180,7 +178,7 @@ def run(**kwargs):
                             
     #print(data_list)
     if "json_file" in kwargs:
-        _write_csv(data_list, kwargs["json_file"])
+        _write_json(data_list, kwargs["json_file"])
     else:
         _write_json(data_list)
 
