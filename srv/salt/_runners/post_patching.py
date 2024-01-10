@@ -29,8 +29,23 @@ def __virtual__():
     '''
     return True
 
+def _minion_accepted():
+    import salt.wheel
+
+    wheel = salt.wheel.WheelClient(__opts__)
+    accepted_minions = wheel.cmd('key.list', ['accepted'])
+    print(accepted_minions)
+    return accepted_minions
+
 def _minion_presence_check(minion_list, timeout=2, gather_job_timeout=10):
     print("checking minion presence...")
+    accepted_minions = _minion_accepted()
+    for m in list(minion_list):
+        if m not in accepted_minions["minions"]:
+            print("Minion {} not accepted.".format(m))
+            minion_list.remove(m)
+
+
     runner = salt.runner.RunnerClient(__opts__)
     timeout = "timeout={}".format(timeout)
     gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout)
@@ -220,6 +235,7 @@ def _get_staging_value(result):
 def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", all_server=False, presence_check=False):
     ret = dict()
     minion_list = []
+    offline_minions = []
     if not all_server:
         if not os.path.exists(file):
             ret["input_file"] = "File Not found: {}.".format(file)
@@ -232,19 +248,28 @@ def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", all_
             if presence_check:
                 minion_status_list = _minion_presence_check(b, timeout=2, gather_job_timeout=10)
                 minion_list = minion_status_list["up"]
+                #print("online minions: {}".format(minion_list))
+                offline_minions = minion_status_list["down"]
         
         
     else:
         minion_status_list = _all_minion_presence_check(timeout=2, gather_job_timeout=10)
         minion_list = minion_status_list["up"]
+        offline_minions = minion_status_list["down"]
 
     if len(minion_list) == 0:
         ret["comment"] = "no minions found."
         return ret
-    
+
+    print("Collecting clm project and stage info from minions.") 
+    runner = salt.runner.RunnerClient(__opts__)
+    clm_stage_info = runner.cmd('clm_info.find_clm_stage', ["input_file={}".format(file)], print_event=True)
+    if len(clm_stage_info) == 0:
+        print("No clm info found from SUSE Manager.")               
+
     
     local = salt.client.LocalClient()
-    print("minion_list: {}".format(list(minion_list)))
+    #print("minion_list: {}".format(list(minion_list)))
     ret_sync = []
     print("sync grains files to minions.")
     ret1 = local.cmd_batch(list(minion_list), 'saltutil.sync_grains', tgt_type="list", batch='10%')
@@ -264,6 +289,12 @@ def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", all_
     ret3 = local.cmd_batch(list(minion_list), 'grains.get', ["oscodename"], tgt_type="list", batch='10%')
     for result in ret3:
         ret["OS_Version"].append(result)
+    
+    print("Collect no_patch from minions.")
+    ret["no_patch"] = []
+    ret3 = local.cmd_batch(list(minion_list), 'grains.get', ["no_patch"], tgt_type="list", batch='10%')
+    for result in ret3:
+        ret["no_patch"].append(result)
     
     print("Collect master plan and staging info from minions.")
     ret["Master_Plan"] = []
@@ -307,6 +338,17 @@ def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", all_
                 for host, _ in s.items():
                     final_ret[host] = {}
 
+    if len(clm_stage_info) > 0:
+        for clm_data in clm_stage_info:
+            for host, clm in clm_data.items():
+                if host in minion_list:
+                    if clm["clm_project"] != "":
+                        final_ret[host].update({"clm_project": clm["clm_project"]})
+                        final_ret[host].update({"clm_stage": clm["clm_stage"]})
+                    else:
+                        final_ret[host].update({"clm_project": ""})
+                        final_ret[host].update({"clm_stage": ""})
+
     for x, y in ret.items():
 
         if x == "uptime":
@@ -329,6 +371,19 @@ def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", all_
                         #final_ret[host] = {}
                         final_ret[host].update({"OS_Version": value})
         
+        if x == "no_patch":
+            if len(y) > 0:
+                for s in y:
+                    for host, value in s.items():
+                        print("{}: {}".format(host, value))
+                        #final_ret[host] = {}
+                        if value == True:
+                            final_ret[host].update({"no_patch": "True"})
+                        elif value == False:
+                            final_ret[host].update({"no_patch": "False"})
+                        else:
+                            final_ret[host].update({"no_patch": "not set"})
+        
         if x == "Master_Plan":
             if len(y) > 0:
                 for s in y:
@@ -350,15 +405,20 @@ def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", all_
                         #final_ret[host] = {}
                         final_ret[host].update({"Patch_Level": value})
  
-    final_ret["csv_file"] = _write_csv(final_ret, csv_file)
+    final_ret["z_csv_file"] = _write_csv(final_ret, csv_file, offline_minions=offline_minions)
     return final_ret
 
-def _write_csv(dictionary, csv_file="/srv/pillar/sumapatch/post_patching_report.csv"):
-    
+def _write_csv(dictionary, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", offline_minions=[]):
+    #print(dictionary.keys())
     with open(csv_file, 'w+', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(['Server Name', 'OS Version', 'Master_Plan', 'Patch Level', 'Kernel Version', 'Uptime'])
+        writer.writerow(['Server Name', 'status',  'OS Version', 'no_patch', 'Master_Plan', 'Staging', 'clm_project', 'clm_stage', 'Patch Level', 'Kernel Version', 'Uptime'])
         for server_name, details in dictionary.items():
-            writer.writerow([server_name, details['OS_Version'], details['Master_Plan'], details['Patch_Level'], details['kernel'], details['uptime']])
+            #print(details)
+            writer.writerow([server_name, "online", details['OS_Version'], details["no_patch"], details['Master_Plan'], details['Staging'], details['clm_project'], details['clm_stage'], details['Patch_Level'], details['kernel'], details['uptime']])
+        if len(offline_minions) > 0:
+            for down_minion in offline_minions:
+                writer.writerow([down_minion, "offline", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a", "n/a"])
+
     return csv_file
     

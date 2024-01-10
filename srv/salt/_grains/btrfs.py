@@ -94,9 +94,3 @@ def get_btrfs_info():
         btrfs_info["free_size"] = round(val) """
 
     return btrfs_info
-
-
-if __name__ == "__main__":
-    output = get_btrfs_info()
-    for a, b in output.items():
-        print("{}: {}".format(a,b))

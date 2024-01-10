@@ -25,7 +25,7 @@ import socket
 import json
 import os
 import re
-import time
+from datetime import datetime
 import xml.dom.minidom
 import xml.etree.ElementTree as ET
 
@@ -61,10 +61,49 @@ def _check_btrfs():
         btrfs_info["btrfs"] = "No btrfs"
     return btrfs_info 
 
+def _already_snapshot_today():
+    # need today in UTC format 03 Dez 2022
+    
+    today = datetime.now().strftime("%d %b %Y")
+    #print("------------------today is {}".format(today))
+    command = ["snapper", "list", "--type", "single", "--columns", "date,user,description" "2>/dev/null"]
+    try:
+        output = subprocess.check_output(command).decode("utf-8")
+    except subprocess.CalledProcessError as e:
+        print(f"-------------An error occurred: {e}")
+        return False
+    
+    command_date = ["date"]
+    try:
+        output_date = subprocess.check_output(command_date).decode("utf-8")
+    except subprocess.CalledProcessError as e:
+        print(f"-------------An error occurred: {e}")
+        return False
+    
+    # need to get the date part from the output_date
+    output_date = output_date.splitlines()[0]
+    output_date = output_date.split(" ")
+    output_date = output_date[1] + " " + output_date[2] + " " + output_date[3]
+    #print("------------------output_date is {}".format(output_date))
+
+
+    if output:
+        for line in output.splitlines():
+            if output_date in line and "SUMA " in line:
+                print("-----------------------Found a snapshot from today")
+                return True
+    
+    return False
+
 def snapper_create(bundle="no-bundle", type="single", cleanup_algorithm="number", userdata="from_salt=true"):
     ret = dict()
     btrfs_version = _check_btrfs()
     if "version" in btrfs_version["btrfs"].keys():
+        if _already_snapshot_today():
+            ret["btrfs_version"] = btrfs_version["btrfs"]["version"]
+            ret["comment"] = "There is already a single snapshot from today. Skip."
+            return ret
+
         description = "SUMA initial snapshot {}".format(bundle)
         ret["btrfs_version"] = btrfs_version["btrfs"]["version"]
         command_arguments = ['create', '-d', description, '-c', cleanup_algorithm, '-t', type, '-u', userdata, '-p']
