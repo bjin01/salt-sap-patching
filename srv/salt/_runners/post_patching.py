@@ -33,8 +33,8 @@ def _minion_accepted():
     import salt.wheel
 
     wheel = salt.wheel.WheelClient(__opts__)
-    accepted_minions = wheel.cmd('key.list', ['accepted'])
-    print(accepted_minions)
+    accepted_minions = wheel.cmd('key.list', ['accepted'], print_event=False)
+    #print(accepted_minions)
     return accepted_minions
 
 def _minion_presence_check(minion_list, timeout=2, gather_job_timeout=10):
@@ -42,7 +42,7 @@ def _minion_presence_check(minion_list, timeout=2, gather_job_timeout=10):
     accepted_minions = _minion_accepted()
     for m in list(minion_list):
         if m not in accepted_minions["minions"]:
-            print("Minion {} not accepted.".format(m))
+            #print("Minion {} not accepted.".format(m))
             minion_list.remove(m)
 
 
@@ -306,7 +306,7 @@ def report(file, csv_file="/srv/pillar/sumapatch/post_patching_report.csv", all_
 
     print("Collect Patch Level from minions.")
     ret["Patch_Level"] = []
-    ret4 = local.cmd_batch(list(minion_list), 'grains.get', ["root_info:SYSPL"], tgt_type="list", batch='10%')
+    ret4 = local.cmd_batch(list(minion_list), 'grains.get', ["srvinfo:INFO_SYSPL"], tgt_type="list", batch='10%')
     for result in ret4:
         ret["Patch_Level"].append(result)
     
