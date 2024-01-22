@@ -209,12 +209,19 @@ def _normalize_data(result):
                 if b != "":
                     groups.append(b)
                     ret[b] = []
+                else:
+                    groups.append("P-MP-missing")
+                    ret["P-MP-missing"] = []
+                
 
     for system in result:
         if isinstance(system, dict):
             for a, b in system.items():
                 if b != "":
                     ret[b].append(a)
+                else:
+                    ret["P-MP-missing"].append(a)
+
     
     suma_config = _get_suma_configuration()
     server = suma_config["servername"]
@@ -246,19 +253,28 @@ def _normalize_data(result):
                     for s in system_list:
                         if s == i['name']:
                             ret_with_id[groupname].append(i['id'])
+                else:
+                    ret_with_id[groupname] = []
                 
     return ret, ret_with_id
 
 def _get_grains():
     grains_info = []
     runner = salt.runner.RunnerClient(__opts__)
-    online_minions = runner.cmd('manage.up', ['timeout=2', 'gather_job_timeout=10'])
+    minion_status_list = runner.cmd('manage.status', ['timeout=2', 'gather_job_timeout=10'])
+    online_minions = minion_status_list["up"]
+    offline_minions = minion_status_list["down"]
     local = salt.client.LocalClient()
     #print("minion_list: {}".format(list(online_minions)))
     _ = local.cmd_batch(list(online_minions), 'saltutil.refresh_grains', tgt_type="list", batch='10%')
     ret = local.cmd_batch(list(online_minions), 'grains.get', ["srvinfo:INFO_MASTERPLAN"], tgt_type="list", batch='10%')
     for result in ret:
         grains_info.append(result)
+    
+    for offline_minion in offline_minions:
+        offline_result = dict()
+        offline_result[offline_minion] = "P-MP-offline"
+        grains_info.append(offline_result)
         #print("MASTERPLAN: {}".format(grains_info))
     #print("entire dict grains_info {}".format(grains_info))
     return grains_info
@@ -324,7 +340,8 @@ def _join(systems):
         
         for group in systems.keys():
             allowed_admins = []
-            description = "created by add_minion_to_group salt runner module."
+            now = datetime.now()
+            description = "created by add_minion_to_group salt runner module. {}".format(now.strftime("%d/%m/%Y, %H:%M:%S"))
             try:
                 _ = client.systemgroup.create(key, group, description)
                 print("Create group {}.".format(group))
