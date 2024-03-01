@@ -176,7 +176,33 @@ def _get_session(server):
 
     return client, key
 
-def add():
+
+def _minion_accepted():
+    import salt.wheel
+
+    wheel = salt.wheel.WheelClient(__opts__)
+    accepted_minions = wheel.cmd('key.list', ['accepted'], print_event=False)
+    #print(accepted_minions)
+    return accepted_minions
+
+def _minion_presence_check(minion_list, timeout=2, gather_job_timeout=10):
+    print("checking minion presence...")
+    accepted_minions = _minion_accepted()
+    for m in list(minion_list):
+        if m not in accepted_minions["minions"]:
+            #print("Minion {} not accepted.".format(m))
+            minion_list.remove(m)
+
+    runner = salt.runner.RunnerClient(__opts__)
+    timeout = "timeout={}".format(timeout)
+    gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout)
+    print("the timeouts {} {}".format(timeout,gather_job_timeout))
+    minion_status_list = runner.cmd('manage.status', ["tgt={}".format(minion_list), "tgt_type=list", timeout, gather_job_timeout], print_event=False)
+
+    return minion_status_list
+
+
+def add(input_file=""):
     """
     add minion to SUSE Manager group, if group does not exist then create the group.
     The minion group information is taken from grains srvinfo:INFO_MASTERPLAN
@@ -184,20 +210,54 @@ def add():
     CLI Example::
 
         salt-run add_minion_to_group.add
+
+        Or use argument input_file to provide a file with list of minions to add to groups in yaml.
+
+        mylist:
+            - minion1
+            - minion2
+            - minion3
+
+        salt-run add_minion_to_group.add input_file=/tmp/minionlist
     """
     # get grains from minion
-    ret_grains = _get_grains()
-    # print("result: {}".format(ret_grains))
 
-    ret_with_hostnames, ret_ids = _normalize_data(ret_grains)
-    
-    # then join minion to group but also create group if group does not exist
-    feedback = _join(ret_ids)
-    if feedback: 
-        return ret_with_hostnames
+    minions_list = []
+
+    #if input_file is provided we read from it then.
+    if input_file != "":
+        if not os.path.exists(input_file):
+            print("File Not found: {}.".format(input_file))
+                
+        else:
+            with open(input_file) as f:
+                data = yaml.load(f, Loader=yaml.FullLoader)
+                for _, val in data.items():
+                    if isinstance(val, list):
+                        for v in val:
+                            minions_list.append(v)
+                        
+
+    #print("minions_list: {}".format(minions_list))
+    ret_grains = _get_grains(minions_list)
+    #print("result ret_grains: {}".format(ret_grains))
+
+    if input_file != "":
+        if not os.path.exists(input_file):
+            print("File Not found: {}.".format(input_file))
+            ret_grains = [{'Error': 'File Not found: {}.'.format(input_file)}]
+            return ret_grains
+        ret_with_hostnames, ret_ids = _normalize_data(ret_grains)
+        _join_without_delete(ret_ids)
+        return {'Success': 'Minions added to groups.'}
     else:
-        return feedback
-    return ret_ids
+        ret_with_hostnames, ret_ids = _normalize_data(ret_grains)
+    
+        # then join minion to group but also create group if group does not exist
+        feedback = _join(ret_ids)
+        if feedback: 
+            return {'Success': 'Minions added to groups.'}
+        
 
 def _normalize_data(result):
     ret = dict()
@@ -252,18 +312,25 @@ def _normalize_data(result):
                 if len(system_list) > 0:
                     for s in system_list:
                         if s == i['name']:
-                            ret_with_id[groupname].append(i['id'])
+                            ret_with_id[groupname].append({i['id']: i['name']})
                 else:
                     ret_with_id[groupname] = []
                 
     return ret, ret_with_id
 
-def _get_grains():
+def _get_grains(minions_list):
     grains_info = []
-    runner = salt.runner.RunnerClient(__opts__)
-    minion_status_list = runner.cmd('manage.status', ['timeout=2', 'gather_job_timeout=10'])
-    online_minions = minion_status_list["up"]
-    offline_minions = minion_status_list["down"]
+
+    if len(minions_list) > 0:
+        minion_status_list = _minion_presence_check(minions_list, timeout=2, gather_job_timeout=10)
+        online_minions = minion_status_list["up"]
+        offline_minions = minion_status_list["down"]
+    else:
+        runner = salt.runner.RunnerClient(__opts__)
+        minion_status_list = runner.cmd('manage.status', ['timeout=2', 'gather_job_timeout=10'])
+        online_minions = minion_status_list["up"]
+        offline_minions = minion_status_list["down"]
+
     local = salt.client.LocalClient()
     #print("minion_list: {}".format(list(online_minions)))
     _ = local.cmd_batch(list(online_minions), 'saltutil.refresh_grains', tgt_type="list", batch='10%')
@@ -279,6 +346,54 @@ def _get_grains():
     #print("entire dict grains_info {}".format(grains_info))
     return grains_info
 
+def _join_without_delete(systems):
+    suma_config = _get_suma_configuration()
+    server = suma_config["servername"]
+    print("Calling SUSE Manager API...join systems to groups")
+    if len(systems.keys()) != 0:
+        try:
+            client, key = _get_session(server)
+        except Exception as exc:  # pylint: disable=broad-except
+            err_msg = 'Exception raised when connecting to spacewalk server ({0}): {1}'.format(server, exc)
+            log.error(err_msg)
+            return {'Error': err_msg}
+        
+        try:
+            allgroups = client.systemgroup.listAllGroups(key)
+        except Exception as exc:  # pylint: disable=broad-except
+            err_msg = 'Exception raised when trying to list all groups: {}'.format(exc)
+            log.error(err_msg)
+
+        existing_groups = []
+        if len(allgroups) > 0:
+            for group in allgroups:
+                existing_groups.append(group['name'])
+        else:
+            existing_groups.append("P-MP-missing")
+        
+        for group in systems.keys():
+            systems_names = []
+            systems_ids = []
+            if group in existing_groups:
+                for system in systems[group]:
+                    if isinstance(system, dict):
+                        for k, v in system.items():
+                            systems_names.append(v)
+                            systems_ids.append(k)
+                print("Will add {} to group {}".format(systems_names, group))
+            else:
+                print("Group {} does not exist in SUMA yet, will not add any systems to it.".format(group))
+                continue
+
+            if len(systems[group]) > 0:
+                try:
+                    _ = client.systemgroup.addOrRemoveSystems(key, group, systems_ids, True)
+                except Exception as exc:  # pylint: disable=broad-except
+                    err_msg = 'Exception raised when trying to join the group ({0}): {1}'.format(group, exc)
+                    log.error(err_msg)
+                    return False
+
+    return 
 
 def _join(systems):
     ret = dict()
@@ -364,10 +479,19 @@ def _join(systems):
                     log.error(err_msg)
             
         for group in systems.keys():
-            print("Will add {} to group {}".format(systems[group], group))
+            systems_names = []
+            systems_ids = []
+            
+            for system in systems[group]:
+                if isinstance(system, dict):
+                    for k, v in system.items():
+                        systems_names.append(v)
+                        systems_ids.append(k)
+            print("Will add {} to group {}".format(systems_names, group))
+        
             if len(systems[group]) > 0:
                 try:
-                    _ = client.systemgroup.addOrRemoveSystems(key, group, systems[group], True)
+                    _ = client.systemgroup.addOrRemoveSystems(key, group, systems_ids, True)
                 except Exception as exc:  # pylint: disable=broad-except
                     err_msg = 'Exception raised when trying to join the group ({0}): {1}'.format(group, exc)
                     log.error(err_msg)
