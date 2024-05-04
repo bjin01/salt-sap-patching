@@ -4,6 +4,7 @@ SUMA api runner
 
 .. versionadded:: 3004-150400.8.17.7
 
+This runner module reads the grains from minions and adds them to SUSE Manager groups based on the masterplan information.
 Runner to interact with SUSE Manager using xmlrpc API
 
 To use this runner, set up the SUMA URL, username and password in the
@@ -258,6 +259,17 @@ def add(input_file=""):
         if feedback: 
             return {'Success': 'Minions added to groups.'}
         
+def _get_sysinfo_grains(minion_id):
+    local = salt.client.LocalClient()
+    ret = local.cmd(minion_id, 'grains.get', ["sysinfo:masterplan"])
+    if isinstance(ret, dict):
+        for _, b in ret.items():
+            if b != "":
+                return b
+            else:
+                return None
+
+    return None
 
 def _normalize_data(result):
     ret = dict()
@@ -336,7 +348,20 @@ def _get_grains(minions_list):
     _ = local.cmd_batch(list(online_minions), 'saltutil.refresh_grains', tgt_type="list", batch='10%')
     ret = local.cmd_batch(list(online_minions), 'grains.get', ["srvinfo:INFO_MASTERPLAN"], tgt_type="list", batch='10%')
     for result in ret:
-        grains_info.append(result)
+        if isinstance(result, dict):
+            for a, b in result.items():
+                if b != "":
+                    grains_info.append(result)
+                else:
+                    log.info("No srvinfo:INFO_MASTERPLAN found for {}".format(a))
+                    masterplan = _get_sysinfo_grains(a)
+                    if masterplan != None:
+                        log.info("sysinfo:masterplan found for {}".format(a))
+                        grains_info.append({a: masterplan})
+                    else:
+                        grains_info.append({a: ""})
+
+
     
     for offline_minion in offline_minions:
         offline_result = dict()
