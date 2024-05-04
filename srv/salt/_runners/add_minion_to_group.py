@@ -407,8 +407,21 @@ def _join_without_delete(systems):
                             systems_ids.append(k)
                 print("Will add {} to group {}".format(systems_names, group))
             else:
-                print("Group {} does not exist in SUMA yet, will not add any systems to it.".format(group))
-                continue
+                now = datetime.now()
+                description = "created by add_minion_to_group salt runner module. {}".format(now.strftime("%d/%m/%Y, %H:%M:%S"))
+                try:
+                    _ = client.systemgroup.create(key, group, description)
+                    print("Create group {}.".format(group))
+                except Exception as exc:  # pylint: disable=broad-except
+                    err_msg = 'Exception raised when trying to creating group ({0}): {1}'.format(group, exc)
+                    log.error(err_msg)
+                
+                for system in systems[group]:
+                    if isinstance(system, dict):
+                        for k, v in system.items():
+                            systems_names.append(v)
+                            systems_ids.append(k)
+                print("Will add {} to newly added group {}".format(systems_names, group))                
 
             if len(systems[group]) > 0:
                 try:
