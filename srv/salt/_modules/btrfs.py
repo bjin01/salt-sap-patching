@@ -42,12 +42,32 @@ SNAPPER_CMD = "/usr/bin/snapper"
 BTRFS_PKG = "btrfsprogs"
 LOGGER = logging.getLogger(__name__)
 
-def __virtual__():    
+def __virtual__():
     return __virtualname__
 
 def _check_btrfs():
     btrfs_info = dict()
     btrfs_info["btrfs"] = {}
+    precheck_cmd = ["df", "-hTP"]
+    grep_cmd = ["grep", "-E", "/$"]
+    regex_btrfs = r'btrfs'
+
+    try:
+        proc1 = subprocess.Popen(precheck_cmd, bufsize=0, stdout=subprocess.PIPE)
+        proc2 = subprocess.Popen(grep_cmd, bufsize=0, stdin=proc1.stdout, stdout=subprocess.PIPE)
+        for line in iter(proc2.stdout.readline, b''):
+            #print(line.decode('utf-8')[:-1])
+            if not re.findall(regex_btrfs, line.decode('utf-8')[:-1]):
+                #print("root fs is not btrfs type.")
+                btrfs_info["btrfs"]["comment"] = "No btrfs, {}".format(line.decode('utf-8')[:-1])
+                return btrfs_info
+
+        proc2.stdout.close()
+        proc2.wait()
+
+    except subprocess.CalledProcessError as e:
+        LOGGER.error(e)
+
     if os.path.exists(BTRFS_CMD) and os.path.exists(SNAPPER_CMD):
         rpm_cmd = ["rpm", "-q", BTRFS_PKG]
         try:
@@ -55,15 +75,15 @@ def _check_btrfs():
         except subprocess.CalledProcessError as e:
             LOGGER.error(e)
             return e
-            
+
         btrfs_info["btrfs"]['version'] = version
     else:
-        btrfs_info["btrfs"] = "No btrfs"
-    return btrfs_info 
+        btrfs_info["btrfs"] = "No btrfs rpm installed."
+    return btrfs_info
 
 def _already_snapshot_today(init_final):
     # need today in UTC format 03 Dez 2022
-    
+
     today = datetime.now().strftime("%d %b %Y")
     #print("------------------today is {}".format(today))
     command_snapper_list = ['snapper', 'list', '-t', 'single']
@@ -72,20 +92,22 @@ def _already_snapshot_today(init_final):
     except subprocess.CalledProcessError as e:
         print(f"-------------An error occurred: {e}")
         #return False
-    
+
     command_date = ["date"]
     try:
         output_date = subprocess.check_output(command_date).decode("utf-8")
     except subprocess.CalledProcessError as e:
         print(f"-------------An error occurred: {e}")
         #return False
-    
+
     # need to get the date part from the output_date
     output_date = output_date.splitlines()[0]
     output_date = output_date.split(" ")
     output_date = output_date[1] + " " + output_date[2] + " " + output_date[3]
     #print("------------------output_date is {}".format(output_date))
 
+    if not "output" in locals():
+        return False
 
     if output:
         for line in output.splitlines():
@@ -94,7 +116,7 @@ def _already_snapshot_today(init_final):
             if output_date in line and search_txt.strip() in line:
                 #print("-----------------------Found a snapshot from today")
                 return True
-    
+
     return False
 
 def snapper_create(bundle="no-bundle", init_final="", type="single", cleanup_algorithm="number", userdata="from_salt=true"):
@@ -115,7 +137,7 @@ def snapper_create(bundle="no-bundle", init_final="", type="single", cleanup_alg
     else:
         ret["comment"] = "Not a btrfs system"
     return ret
-    
+
 def _execute_snapper_command(arguments):
     command = ['snapper'] + arguments
 

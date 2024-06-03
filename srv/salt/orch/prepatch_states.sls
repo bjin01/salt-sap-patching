@@ -1,3 +1,6 @@
+include:
+  - orch.stop_containers
+
 disable_http_proxy:
   file.replace:
     - name: /etc/sysconfig/proxy
@@ -8,6 +11,7 @@ snapper_create_snapshot_prepatch:
   module.run:
     - btrfs.snapper_create:
       - bundle: "bo state"
+      - init_final: "initial"
       - userdata: "important=yes"
       - type: "single"
       - cleanup_algorithm: "number"
