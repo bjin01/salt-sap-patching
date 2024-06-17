@@ -458,13 +458,9 @@ def _patch_single(client, key, target_system_id, target_system_name, kwargs):
  
     return ret
 
-def reboot(reboot_list=None, **kwargs):
+def reboot(target_systems=[], **kwargs):
     '''
-    Call suse manager / uyuni xmlrpc api and schedule reboot job for the given salt-minions
-
-    You could provide a delay in minutes or fixed schedule time for the job in format of: "15:30 20-04-1970"
-
-    If no delay or schedule is provided then the job will be set to run now.
+    Call suse manager / uyuni xmlrpc api and schedule reboot job for a given salt-minions
 
     Use cae:
     It can be helpful to create a reactor that catches certain event sent by minion by e.g. highstate or minion registration and trigger to patch the minion with all available patches from SUSE Manager / Uyuni 
@@ -473,32 +469,34 @@ def reboot(reboot_list=None, **kwargs):
 
     .. code-block:: bash
 
-        salt-run sumapatch.reboot reboot_list=/srv/pillar/sumapatch/reboot_list.yaml delay=2
+        salt-run patch.reboot target_systems=mytest.example.com
 
     Orchestrate state file example in salt://orch/patch.sls:
        
-        salt-run state.orch sumapatch.reboot_t7udp_20230721213318
+        salt-run state.orch patch.reboot
 
     .. code-block:: yaml
         
-        run_patching_completed_t7udp_20230721213308:
+        run_patching_reboot:
             salt.runner:
-                - name: sumapatch.reboot 
-                - reboot_list: /srv/pillar/sumapatch/completed_t7udp_20230721213308
-                - kwargs:
-                delay: 3
-                jobchecker_timeout: 20
-                jobchecker_emails:
-                    - max.mustermann@mydom.eu
-                t7user: t7udp
-                
+                - name: patch.reboot 
+                - target_systems: 
+                  - minion 1
+                  - minion 2
+                  - minion 3
+    
+    Or from salt-master command line:
+    .. code-block:: bash
+        salt-run patch.reboot target_systems="[pxesap01.bo2go.home, pxesap02.bo2go.home, pxesap03.bo2go.home]"
+    
     '''
+    
     status = ""
     suma_config = _get_suma_configuration()
     server = suma_config["servername"]
     reboot_dict = dict()
     ret = dict()
-    ret["reboot_jobs"] = []
+    ret["reboot_job"] = []
     try:
         client, key = _get_session(server)
     except Exception as exc:  # pylint: disable=broad-except
@@ -515,77 +513,32 @@ def reboot(reboot_list=None, **kwargs):
     else:
         nowlater = datetime.now() + timedelta(minutes=2)
     
-    if kwargs.get("jobchecker_emails"):
-        ret["jobchecker_emails"] = []
-        ret["jobchecker_emails"] = kwargs.get("jobchecker_emails")
-        print("jobchecker emails: {}".format(ret["jobchecker_emails"]))
-        
-    if kwargs.get("jobchecker_timeout"):
-        if kwargs.get('delay'):
-            ret["jobchecker_timeout"] = kwargs["delay"] + kwargs["jobchecker_timeout"]
-            ret["jobstart_delay"] = kwargs["delay"]
-        else:
-            ret["jobchecker_timeout"] = kwargs["jobchecker_timeout"]
-            ret["jobstart_delay"] = 0
-    else:
-        ret["jobchecker_timeout"] = 30
-        if kwargs.get('delay'):
-            ret["jobstart_delay"] = kwargs["delay"]
-        else:
-            ret["jobstart_delay"] = 0
-    
-    if kwargs.get("t7user"):
-        ret["t7user"] = kwargs.get("t7user")
-    else:
-        ret["t7user"] = "unknown"
-    
-    if not reboot_list == None:
-        # Open the YAML file
-        reboot_file = reboot_list
-        with open(reboot_file, 'r') as file:
-            # Load the YAML data into a dictionary
-            reboot_dict = yaml.safe_load(file)
-
-    already_reboot_pending = _check_existing_reboot_jobs(client, key)
-    reboot_required_list = _reboot_required(client, key)
-
-    for reboot_required in list(reboot_required_list):
-        if reboot_required["id"] in already_reboot_pending:
-            reboot_required_list.remove(reboot_required)
 
     earliest_occurrence = six.moves.xmlrpc_client.DateTime(nowlater)
-    if len(reboot_dict.keys()) > 0:
-        for i in reboot_dict.keys():
-            if isinstance(reboot_dict[i], list):
-                for system in reboot_dict[i]:
-                    if any(system in d.values() for d in reboot_required_list):
-                        for reboot_required in reboot_required_list: 
-                            if reboot_required["name"] == system:
-                                reboot_out = _reboot_single(client, key, reboot_required["id"], earliest_occurrence)
-                                ret["reboot_jobs"].append({system: reboot_out})
-                    else:
-                        ret["reboot_jobs"].append({system :{"comment": "No reboot needed or another reboot job is pending."}})
     
-
-    if len(ret["reboot_jobs"]) > 0:
-        for system in list(ret["reboot_jobs"]):
-            if isinstance(system, dict):
-                for key, val in system.items():
-                    if not isinstance(val, dict):
-                        ret["reboot_jobs"].remove(system)
-                    if not "Reboot Job ID is" in val.keys():
-                        ret["reboot_jobs"].remove(system)
-            else:
-                ret["reboot_jobs"].remove(system)
-    
-    # only call jobchecker if list is greater than 0
-    if len(ret["reboot_jobs"]) > 0:
-        result_to_jobchecker = copy.deepcopy(ret)
-        result_to_jobchecker["Patching"] = copy.deepcopy(ret["reboot_jobs"])
-        print(result_to_jobchecker)
-        _send_to_jobcheck(result_to_jobchecker)
+    if isinstance(target_systems, list):
+        for target_system in list(set(target_systems)):
+            try:
+                target_system_id = _get_systemid(client, key, target_system)
+            except Exception as exc:
+                err_msg = 'Exception raised trying to find host minion id ({0}): {1}'.format(target_system, exc)
+                log.error(err_msg)
+                ret[target_system] = {'Error': err_msg}
+            
+            if target_system_id != 0:
+                ret1 = _reboot_single(client, key, target_system_id, earliest_occurrence)
+                ret["reboot_job"].append({target_system: ret1})
     else:
-        log.warning("No reboot jobs scheduled at all, not calling jobchecker. Exit")
+        try:
+            target_system_id = _get_systemid(client, key, target_systems)
+        except Exception as exc:
+            err_msg = 'Exception raised trying to find host minion id ({0}): {1}'.format(target_systems, exc)
+            log.error(err_msg)
+            ret[target_systems] = {'Error': err_msg}
+        
+        if target_system_id != 0:
+            ret1 = _reboot_single(client, key, target_system_id, earliest_occurrence)
+            ret["reboot_job"].append({target_systems: ret1})
 
     return ret
 
@@ -637,7 +590,10 @@ def _reboot_single(client, key, server_id, earliest_occurrence):
     if int(result_reboot_job) > 0:
             log.info("SUMA Reboot job {} created for {}".format(result_reboot_job, server_id))
             #print("SUMA Reboot job {} created for {}".format(result_reboot_job, target_system))
-            return {"Reboot Job ID is": result_reboot_job}
+            return {"JobID": result_reboot_job}
+    else:
+        log.error("SUMA Reboot job creation failed for {}".format(server_id))
+        return {"JobID": 0}
 
 def _schedule_pkg_refresh_job(client, key, target_system_id, target_system, kwargs):
     ret = dict()
