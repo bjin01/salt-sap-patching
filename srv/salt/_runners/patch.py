@@ -277,7 +277,7 @@ def patch(target_systems=[], **kwargs):
         salt-run patch.patch target_systems='["pxesap02.bo2go.home", "pxesap01.bo2go.home"]' delay=5
                 
     '''
-
+    log.debug("----------------------------args: {} kwargs: {}".format(target_systems, kwargs))
     suma_config = _get_suma_configuration()
     server = suma_config["servername"]
     ret = dict()
