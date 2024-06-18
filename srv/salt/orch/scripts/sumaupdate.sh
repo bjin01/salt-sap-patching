@@ -46,14 +46,21 @@ is_salt_minion_running() {
 
 jobid=0
 schedule_suma_patch_job() {
+    error1="not available"
+    error2="failed"
+
     check_minion_running=$(is_salt_minion_running)
     #echo ${check_minion_running}
     if ! is_salt_minion_running
     then
-        logger "venv-salt-minion is not running. exit."
+        logger -s "venv-salt-minion is not running. exit."
         exit 1
     fi
     schedule_output=$(venv-salt-call publish.runner patch.patch arg="target_systems=${minionid}" 2>/dev/null)
+    echo ${schedule_output}
+    if [[ "${schedule_output}" =~ .*"${error1}".* ]] || [[ "${schedule_output}" =~ .*"${error2}".* ]]; then
+        return 1
+    fi
     echo -n "Jobid: "
     jobid=$(echo ${schedule_output} | grep -o -E "JobID:.*[0-9]+" | awk -F ":" '{ print $2 }' | tr -d [:space:]) 
     echo ${jobid} > ${SUMAJOBFILE}
@@ -109,15 +116,21 @@ loop_check_job_status() {
     return 1
 }
 
-schedule_suma_patch_job
-
-if [ ${jobid} -eq 0 ]
+#schedule_suma_patch_job
+if ! schedule_suma_patch_job
 then
-   logger "No suma patch job scheduled. jobid is 0. Exit."
-   exit 1
+    logger -s "schedule_suma_patch_job failed."
+    exit 1
 fi
 
-loop_check_job_status
-schedule_suma_reboot_job
+if [ "${jobid}" -eq 0 ]
+then
+    logger "No suma patch job scheduled. jobid is 0. Exit."
+    exit 1
+else
+    loop_check_job_status
+    schedule_suma_reboot_job
+fi
+
 delete_tempfile
 exit 0
