@@ -33,8 +33,7 @@ import os
 import urllib3
 import yaml
 import json
-import copy
-import subprocess
+import time
 import salt.client
 import six
 from datetime import datetime,  timedelta
@@ -218,7 +217,7 @@ def _get_cursor():
         dbname=_options["db"],
         port=_options["port"],
     )
-    conn.set_session(autocommit=True)
+    conn.set_session()
     cursor = conn.cursor()
     try:
         yield cursor
@@ -401,6 +400,7 @@ def run(groups=[], **kwargs):
             sid = system["id"]
             sname = system["name"]
             pkg_ids = []
+
             if "no_update" in kwargs and kwargs["no_update"]:
                 log.debug("No update for {}".format(sname))
                 systemlist_with_pkgids.append({"name": sname, "id": sid, "pkg_ids": []})
@@ -426,9 +426,22 @@ def run(groups=[], **kwargs):
                 log.error("Failed to create action chain. Exit.")
                 return
             #print("all systemlist_with_pkgids {}".format(systemlist_with_pkgids))
+            
+            sort_num = _get_rhnactionchainentry_sortorder(client, key, chain_actionID)
+            if "pre_states" in kwargs and isinstance(kwargs["pre_states"], list):
+                log.debug("Add pre state job: {}".format(kwargs["pre_states"]))
+                for system in systemlist_with_pkgids:
+                    state_action_id = _addState(client, key, system["id"], label, chain_actionID, kwargs["pre_states"], sort_num)
+                    if state_action_id == 0:
+                        log.error("Failed to add pre state job to action chain for {}. Exit.".format(kwargs["pre_states"]))
+                        return
+                
+            
+            
             for system in systemlist_with_pkgids:
                 if len(system["pkg_ids"]) == 0:
                     continue
+                
                 log.debug("{}: {}".format(system["name"], len(system["pkg_ids"])))
                 pkg_action_id = _addPackageUpgrade(client, key, label, system["id"], system["pkg_ids"])
                 #log.debug("pkg_action_id: {}".format(pkg_action_id))
@@ -436,18 +449,22 @@ def run(groups=[], **kwargs):
                     log.error("Failed to add package upgrade to action chain for {}. Exit.".format(system["name"]))
                     break
             
+            time.sleep(3)
             if "reboot" in kwargs and kwargs["reboot"]:
+                
                 for system in systemlist_with_pkgids:
                     log.debug("Add reboot job for {}".format(system["name"]))
                     reboot_jobid = _addSystemReboot(client, key, system["id"], label)
-
-            if "states" in kwargs and isinstance(kwargs["states"], list):
-                
-                log.debug("Add state job: {}".format(kwargs["states"]))
+                    
+            
+            time.sleep(3)
+            if "post_states" in kwargs and isinstance(kwargs["post_states"], list):
+                sort_num = _get_rhnactionchainentry_sortorder(client, key, chain_actionID)
+                log.debug("Add post state job: {}".format(kwargs["post_states"]))
                 for system in systemlist_with_pkgids:
-                    state_action_id = _addState(client, key, system["id"], label, chain_actionID, kwargs["states"])
+                    state_action_id = _addState(client, key, system["id"], label, chain_actionID, kwargs["post_states"], sort_num)
                     if state_action_id == 0:
-                        log.error("Failed to add state job to action chain for {}. Exit.".format(kwargs["states"]))
+                        log.error("Failed to add post state job to action chain for {}. Exit.".format(kwargs["post_states"]))
                         break
             
             earliest_occurrence = six.moves.xmlrpc_client.DateTime(datetime.now() + timedelta(minutes=10))
@@ -470,37 +487,62 @@ def run(groups=[], **kwargs):
 
     return ret
 
-def _addState(client, key, sid, label, chain_id, states):
+def _get_rhnactionchainentry_sortorder(client, key, chain_id):
+    sort_num = 0
+    try:
+        select_rhnactionchainentry = """SELECT MAX(sort_order) FROM rhnactionchainentry WHERE actionchain_id = %s"""
+        with _get_cursor() as curs:
+            curs.execute(select_rhnactionchainentry, (chain_id,))
+            select_rhnactionchainentry_result = curs.fetchone()
+            if select_rhnactionchainentry_result:
+                sort_num = select_rhnactionchainentry_result[0] + 1
+            else:
+                sort_num = 0
+        return sort_num
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return 0
+    
+
+def _addState(client, key, sid, label, chain_id, states, sort_num):
     actionID = 0
     states_string = ""
     for s in states:
         states_string += s + ","
+    #print("states_string before rstrip {}".format(states_string))
    
     # strip the last comma in states_string
     if states_string != "":
         states_string = states_string.rstrip(',')
+        #print("states_string after rstrip {}".format(states_string))
     else:
         return action_id
 
+    select_rhnaction = """SELECT MAX(id) FROM rhnaction"""
     
     create_rhnaction = """INSERT INTO rhnaction (id, org_id, action_type, name, scheduler, earliest_action, version)
-        VALUES((SELECT MAX(id)+1 FROM rhnaction), 1, 503, %s, 1, now(), 2) RETURNING id;"""
+        VALUES(nextval('rhn_event_id_seq'), 1, 503, %s, 1, now(), 2) RETURNING id;"""
     
-    create_rhnactionapplystates = """INSERT INTO rhnactionapplystates 
-        (id, action_id, states, test) VALUES((SELECT MAX(id)+1 FROM rhnactionapplystates), 
-        %s, %s, 'N') RETURNING id;"""
+    create_rhnactionapplystates = """INSERT INTO rhnactionapplystates (id, action_id, states, test) VALUES(nextval('rhn_act_apply_states_id_seq'), %s, %s, 'N') RETURNING id;"""
     
     add_to_actionchain = """INSERT INTO rhnactionchainentry (actionchain_id, action_id, server_id, sort_order) 
-        VALUES(%s, %s, %s, (SELECT COALESCE(MAX(sort_order)+1, 0) FROM rhnactionchainentry));"""
+        VALUES(%s, %s, %s, %s);"""
     try:
         with _get_cursor() as curs:
+            #curs.execute("SELECT setval('rhnaction_id_seq', (SELECT COALESCE(MAX(id), 1) FROM rhnaction)::bigint)")
+            #curs.connection.commit()
+            curs.execute(select_rhnaction)
+            select_rhnaction_result = curs.fetchone()
+            curs.connection.commit()
+            print("last rhnaction id is {} and next rhnaction id would be {}".format(select_rhnaction_result[0], select_rhnaction_result[0] +1 ))
             
+
             curs.execute(create_rhnaction, (states_string,))
             rows = curs.fetchone()
             if rows:
                 action_id = rows[0]
             # Commit into the database
-            #curs.connection.commit()
+            curs.connection.commit()
             print("rhnaction id: %s" % action_id)
 
             curs.execute(create_rhnactionapplystates, (action_id, states_string,))
@@ -508,11 +550,11 @@ def _addState(client, key, sid, label, chain_id, states):
             if rows:
                 state_action_id = rows[0]
             # Commit into the database
-            #curs.connection.commit()
+            curs.connection.commit()
             print("rhnactionapplystates id: %s" % state_action_id)
 
-            curs.execute(add_to_actionchain, (chain_id, action_id, sid,))
-            #curs.connection.commit()
+            curs.execute(add_to_actionchain, (chain_id, action_id, sid, sort_num,))
+            curs.connection.commit()
             print("action id: %s added to action chain %s" % (action_id, label))
 
             return action_id
