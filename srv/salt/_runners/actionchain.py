@@ -30,11 +30,8 @@ from cryptography.fernet import Fernet
 import atexit
 import logging
 import os
-import urllib3
 import yaml
-import json
-import time
-import salt.client
+#import salt.client
 import six
 from datetime import datetime,  timedelta
 from contextlib import contextmanager
@@ -51,13 +48,14 @@ if TYPE_CHECKING:
     __opts__: Any = None
 
 
-log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
+
+#log.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
 file_handler = logging.FileHandler('/var/log/patching/patching.log')
 file_handler.setLevel(logging.DEBUG)
 file_handler.setFormatter(formatter)
-
+log = logging.getLogger("action_chain")
+#log.setLevel(logging.DEBUG)
 log.addHandler(file_handler)
 
 _sessions = {}
@@ -226,6 +224,7 @@ def _get_cursor():
     except psycopg2.DatabaseError as err:
         log.exception("Error while connecting to POSTGRES: %s", err.args)
     finally:
+        log.debug("Disconnected from Postgres DB.")
         conn.close()
 
 def _get_client_and_key(url, user, password, verbose=0):
@@ -270,20 +269,29 @@ def _get_session(server):
 
 def run(groups=[], **kwargs):
     '''
-    Call suse manager / uyuni xmlrpc api and create action chain for patching a given group of salt-minions
+    Call suse manager / uyuni xmlrpc api and create action chain to patch a given group of salt-minions
 
-    You could provide a delay in minutes or fixed schedule time for the job in format of: "15:30 20-04-1970"
+    There are four jobs will be created if all are enabled by kwargs:
+        - pre-sates: salt states that should be executed prior patching.
+        - patching: patching job
+        - reboot: reboot job
+        - post-states: salt states that should be executed after patching.
+    
 
-    If no delay or schedule is provided then the job will be set to now.
+    If delay keyword argument is not provided then the job will start by default with one minute delay.
 
-    Use cae:
-    It can be helpful to create a reactor that catches certain event sent by minion by e.g. highstate or minion registration and trigger to patch the minion with all available patches from SUSE Manager / Uyuni 
+    Use case:
+    It can be helpful to create a reactor that catches certain event sent by minion by 
+    e.g. highstate or minion registration and trigger to patch the minion 
+    with all available patches from SUSE Manager / Uyuni 
     
     CLI Example:
 
     .. code-block:: bash
 
-        salt-run actionchain.run groups=[] delay=15
+        salt-run actionchain.run groups="[a_group1, b_group2]" \
+            reboot=True no_update=True \
+            pre_states="[asdfmanager_org_1.bo_state_test, mypkgs]" post_states="[pause]" delay=5
 
     Orchestrate state file example in salt://orch/patch.sls:
        
@@ -299,19 +307,22 @@ def run(groups=[], **kwargs):
               - group2
               - group3
             - kwargs:
-                delay: 60
+                delay: 5
                 reboot: True
+                no_update: True
                 logfile: /var/log/patching/sumapatch.log
         
         cmd:
-        salt-run actionchain.run groups='["group1", "group2"]' delay=5
+        salt-run actionchain.run groups="[a_group1, b_group2]" \
+            reboot=True no_update=True \
+            pre_states="[asdfmanager_org_1.bo_state_test, mypkgs]" post_states="[pause]" delay=5
                 
     '''
     #log.debug("----------------------------args: {} kwargs: {}".format(groups, kwargs))
     suma_config = _get_suma_configuration()
     server = suma_config["servername"]
     ret = dict()
-    ret["Patching"] = []
+    
     
 
     if 'logfile' in kwargs:
@@ -323,7 +334,7 @@ def run(groups=[], **kwargs):
         file_handler_custom = logging.FileHandler(kwargs['logfile'])
         file_handler_custom.setLevel(logging.DEBUG)
         file_handler_custom.setFormatter(formatter)
-        log.addHandler(file_handler_custom) 
+        log.addHandler(file_handler_custom)
 
 
     try:
@@ -336,59 +347,84 @@ def run(groups=[], **kwargs):
     all_data = []
     systemid_list_all_groups = []
     if len(groups) > 0:
+        log.info("Following groups will be patched: {}".format(groups))
         if isinstance(groups, list):
             for grp in list(set(groups)):
                 try:
-                    active_systems_ids = _get_listActiveSystemsInGroup(client, key, grp)
-                    if active_systems_ids:
-                        log.debug("following active systems in group: {} \t{}".format(grp, active_systems_ids))
-                        systemid_list_all_groups += active_systems_ids
+                    result_systemsInGroup = _get_listSystemsInGroup(client, key, grp)
+                    if result_systemsInGroup:
+                        #log.debug("following active systems in group: {} \t{}".format(grp, result_systemsInGroup))
+                        for r in result_systemsInGroup:
+                            systemid_list_all_groups.append(r)
                     else:
-                        log.debug("No active systems in group: {}".format(grp))
+                        log.debug("No systems in group: {}".format(grp))
                         continue
                     
                 except Exception as exc:
-                    err_msg = 'Exception raised trying to get active systems IDs from group ({0}): {1}'.format(grp, exc)
+                    err_msg = 'Exception raised trying to get systems IDs from group ({0}): {1}'.format(grp, exc)
                     log.error(err_msg)
                     
         else:
             if isinstance(groups, str) and groups != "":
                 try:
-                    active_systems_ids = _get_listActiveSystemsInGroup(client, key, groups)
-                    if active_systems_ids:
-                        log.debug("following active systems in group: {} \t{}".format(groups, active_systems_ids))
-                        systemid_list_all_groups += active_systems_ids
+                    result_systemsInGroup = _get_listSystemsInGroup(client, key, groups)
+                    if result_systemsInGroup:
+                        #log.debug("following systems in group: {} \t{}".format(groups, result_systemsInGroup))
+                        for r in result_systemsInGroup:
+                            systemid_list_all_groups.append(r)
+                        
                     else:
-                        log.debug("No active systems in group: {}".format(groups))
+                        log.debug("No systems in group: {}".format(groups))
                     
                 except Exception as exc:
-                    err_msg = 'Exception raised trying to get active systems IDs from single group ({0}): {1}'.format(groups, exc)
+                    err_msg = 'Exception raised trying to get systems IDs from single group ({0}): {1}'.format(groups, exc)
                     log.error(err_msg)
             else:    
                 log.debug("No groups provided. Exit.")
                 return {"Error": "No groups provided."}
     
+    unique_systemid_list_all_groups = []
     if len(systemid_list_all_groups) > 0:
-        #print("All systems in groups: {}".format(systemid_list_all_groups))
-        # create a list of all systems but unique id
-        systemid_list_all_groups = list(set(systemid_list_all_groups))
+        log.debug("systemid_list_all_groups: {}".format(systemid_list_all_groups))
+        ids = []
+        for s in systemid_list_all_groups:
+            ids.append(s['id'])
 
-        for id in systemid_list_all_groups:
-            systemname = _get_systemname(client, key, id)
-            if systemname and systemname != "":
-                #print("{}: {}".format(systemname, id))
-                all_data.append({"name": systemname, "id": id})
+        unique_ids = list(set(ids))
+        print("unique_ids: {}".format(unique_ids))
         
-        if len(all_data) > 0:
-            minionlist = []
-            for data in all_data:
-                minionlist.append(data["name"])
-                print("{}".format(data))
+        # need to add unique element from systemid_list_all_groups into unique_systemid_list_all_groups
+        for u in unique_ids:
+            exist = 0
+            for s in systemid_list_all_groups:
+                if u == s['id'] and exist == 0:
+                    exist = 1
+                    unique_systemid_list_all_groups.append(s)
 
+        minionlist = []
+        for server in unique_systemid_list_all_groups:
+            #systemname = _get_systemname(client, key, id)
+            if server['name'] and server['name'] != "":
+                #print("{}: {}".format(systemname, id))
+                all_data.append({"name": server['name'], "id": server['id']})
+                minionlist.append(server["name"])
+
+        if len(minionlist) > 0:
             online_minions = _minion_presence_check(minionlist)
-            print("online_minions: {}".format(online_minions))
+
+            if len(log.handlers) > 1:
+                log.removeHandler(log.handlers[1])
+            log.info("online_minions: {}".format(online_minions))
+            
+        else:
+            print("No active minions in list. Exit.")
+            return
         
         online_systems = []
+        if not online_minions:
+            print("Failed to get online minions. Exit")
+            return
+        
         for system in all_data:
             if system["name"] in online_minions:
                 online_systems.append(system)
@@ -408,8 +444,12 @@ def run(groups=[], **kwargs):
             try:
                 result_upg_pkgs = client.system.listLatestUpgradablePackages(key, sid)
                 if len(result_upg_pkgs) > 0:
+                    # prevent duplicate pkg ids
                     for pkg in result_upg_pkgs:
-                        pkg_ids.append(pkg['to_package_id'])
+                        if pkg['to_package_id'] not in pkg_ids:
+                            pkg_ids.append(pkg['to_package_id'])
+                        else:
+                            print("Not adding duplicate pkg id: {} {}".format(pkg['to_package_id'], pkg['name']))
                 if len(pkg_ids) > 0:
                     systemlist_with_pkgids.append({"name": sname, "id": sid, "pkg_ids": pkg_ids})
             except Exception as exc:  # pylint: disable=broad-except
@@ -424,13 +464,17 @@ def run(groups=[], **kwargs):
             chain_actionID = _create_actionchain(client, key, label)
             if chain_actionID == 0:
                 log.error("Failed to create action chain. Exit.")
-                return
+            else:
+                ret['action_chain_id'] = chain_actionID
+                ret['action_chain_label'] = label
+                
             #print("all systemlist_with_pkgids {}".format(systemlist_with_pkgids))
             
-            sort_num = _get_rhnactionchainentry_sortorder(client, key, chain_actionID)
+            
             if "pre_states" in kwargs and isinstance(kwargs["pre_states"], list):
                 log.debug("Add pre state job: {}".format(kwargs["pre_states"]))
                 for system in systemlist_with_pkgids:
+                    sort_num = _get_rhnactionchainentry_sortorder(client, key, chain_actionID)
                     state_action_id = _addState(client, key, system["id"], label, chain_actionID, kwargs["pre_states"], sort_num)
                     if state_action_id == 0:
                         log.error("Failed to add pre state job to action chain for {}. Exit.".format(kwargs["pre_states"]))
@@ -449,7 +493,7 @@ def run(groups=[], **kwargs):
                     log.error("Failed to add package upgrade to action chain for {}. Exit.".format(system["name"]))
                     break
             
-            time.sleep(3)
+            #time.sleep(3)
             if "reboot" in kwargs and kwargs["reboot"]:
                 
                 for system in systemlist_with_pkgids:
@@ -457,50 +501,48 @@ def run(groups=[], **kwargs):
                     reboot_jobid = _addSystemReboot(client, key, system["id"], label)
                     
             
-            time.sleep(3)
+            #time.sleep(3)
             if "post_states" in kwargs and isinstance(kwargs["post_states"], list):
-                sort_num = _get_rhnactionchainentry_sortorder(client, key, chain_actionID)
                 log.debug("Add post state job: {}".format(kwargs["post_states"]))
                 for system in systemlist_with_pkgids:
+                    sort_num = _get_rhnactionchainentry_sortorder(client, key, chain_actionID)
                     state_action_id = _addState(client, key, system["id"], label, chain_actionID, kwargs["post_states"], sort_num)
                     if state_action_id == 0:
                         log.error("Failed to add post state job to action chain for {}. Exit.".format(kwargs["post_states"]))
                         break
             
-            earliest_occurrence = six.moves.xmlrpc_client.DateTime(datetime.now() + timedelta(minutes=10))
+            if "delay" in kwargs and kwargs["delay"] != "":
+                delay = int(kwargs["delay"])
+            else:
+                delay = 1
+            earliest_occurrence = six.moves.xmlrpc_client.DateTime(datetime.now() + timedelta(minutes=delay))
             jobID = _scheduleChain(client, key, label, earliest_occurrence)
             if jobID == 0:
                 log.error("Failed to schedule action chain. Exit.")
                 return
             else:
-                ret["Action Chain"] = "{} created successfully".format(label)
+                ret["comment"] = "{} created successfully".format(label)
                 return ret
-            
-
-    
-    #print("Start patch job scheduling.")
-    
-    if 'logfile' in kwargs:
-        _write_logs(ret, logfile=kwargs['logfile'])
-    else:
-        _write_logs(ret)
-
     return ret
 
 def _get_rhnactionchainentry_sortorder(client, key, chain_id):
     sort_num = 0
     try:
-        select_rhnactionchainentry = """SELECT MAX(sort_order) FROM rhnactionchainentry WHERE actionchain_id = %s"""
+        select_rhnactionchainentry = """SELECT MAX(cast((sort_order) as int)) FROM rhnactionchainentry WHERE actionchain_id = %s"""
         with _get_cursor() as curs:
             curs.execute(select_rhnactionchainentry, (chain_id,))
             select_rhnactionchainentry_result = curs.fetchone()
             if select_rhnactionchainentry_result:
-                sort_num = select_rhnactionchainentry_result[0] + 1
+                #log.debug("select_rhnactionchainentry_result[0]: {} is instance {}".format(select_rhnactionchainentry_result[0], type(select_rhnactionchainentry_result[0])))
+                if isinstance(select_rhnactionchainentry_result[0], int):
+                    sort_num = select_rhnactionchainentry_result[0]
+                    sort_num += 1
+                
             else:
                 sort_num = 0
         return sort_num
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"An error occurred _get_cursor: {e}")
         return 0
     
 
@@ -515,6 +557,7 @@ def _addState(client, key, sid, label, chain_id, states, sort_num):
     if states_string != "":
         states_string = states_string.rstrip(',')
         #print("states_string after rstrip {}".format(states_string))
+        states_string_jobname = f'"custom states - {states_string}"'
     else:
         return action_id
 
@@ -534,16 +577,16 @@ def _addState(client, key, sid, label, chain_id, states, sort_num):
             curs.execute(select_rhnaction)
             select_rhnaction_result = curs.fetchone()
             curs.connection.commit()
-            print("last rhnaction id is {} and next rhnaction id would be {}".format(select_rhnaction_result[0], select_rhnaction_result[0] +1 ))
+            #print("last rhnaction id is {} and next rhnaction id would be {}".format(select_rhnaction_result[0], select_rhnaction_result[0] +1 ))
             
 
-            curs.execute(create_rhnaction, (states_string,))
+            curs.execute(create_rhnaction, (states_string_jobname,))
             rows = curs.fetchone()
             if rows:
                 action_id = rows[0]
             # Commit into the database
             curs.connection.commit()
-            print("rhnaction id: %s" % action_id)
+            #print("rhnaction id: %s" % action_id)
 
             curs.execute(create_rhnactionapplystates, (action_id, states_string,))
             rows = curs.fetchone()
@@ -551,50 +594,17 @@ def _addState(client, key, sid, label, chain_id, states, sort_num):
                 state_action_id = rows[0]
             # Commit into the database
             curs.connection.commit()
-            print("rhnactionapplystates id: %s" % state_action_id)
+            #print("rhnactionapplystates id: %s" % state_action_id)
 
             curs.execute(add_to_actionchain, (chain_id, action_id, sid, sort_num,))
             curs.connection.commit()
-            print("action id: %s added to action chain %s" % (action_id, label))
+            #print("action id: %s added to action chain %s" % (action_id, label))
 
             return action_id
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"An error occurred _addState: {e}")
         return 0
 
-    """ if len(states) > 0:
-        #config_specifier = [{"channelLabel": label, "filePath": "/init.sls", "revision": 0}]
-        '''
-        actionProps:
-            entity_type: minion
-            entity_id: 1000010047
-            name: "test state apply"
-            cron_expr: "0 1/12 * * *"
-            states:
-                - certs
-                - mypkgs
-        '''
-        actionProps = dict()
-        actionProps["entity_type"] = "minion"
-        actionProps["entity_id"] = sid
-        actionProps["name"] = "api - state apply"
-        actionProps["cron_expr"] = "0 0 12 * * ?"
-
-        sid_list = []
-        sid_list.append(sid)
-        try:
-            #actionID = client.actionchain.addConfigurationDeployment(key, actionProps)
-            #actionID = client.recurring.custom.create(key, actionProps) 
-            earliest_occurrence = six.moves.xmlrpc_client.DateTime(datetime.now())
-            actionID = client.system.scheduleApplyStates(key, sid, states, earliest_occurrence, False)
-            return actionID
-        except Exception as exc:  # pylint: disable=broad-except
-            err_msg = 'Exception raised when trying to schedule state apply job for {1} {0}'.format(sid, exc)
-            log.error(err_msg)
-            return actionID
-    else:
-        log.error("state is empty.")
-        return actionID """
     
 def _addSystemReboot(client, key, sid, label):
     try:
@@ -654,35 +664,6 @@ def _create_actionchain(client, key, label):
 
     return actionID
 
-def _send_to_jobcheck(results):
-    print("see ret {}".format(results))
-    uri = 'http://192.168.122.1:12345/jobchecker'
-    body = results
-    headers = {}
-    method = 'POST'
-    timeout = 120.0
-
-    pool = urllib3.PoolManager(timeout=timeout, retries=urllib3.util.retry.Retry(15))
-    headers.update({'Content-Type': 'application/json', 'Connection': 'close', \
-                    'User-Agent': 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 \
-                        (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17'})
-
-    if body is not None and not isinstance(body, str):
-        body = json.dumps(body).encode('utf-8')
-
-    #print('[Request]: %s url=%s, headers=%s, body=%s' % (method, uri, headers, body))
-    if body:
-        headers['Content-Length'] = len(body)
-        try:
-            rsp = pool.request(method, uri, body=body, headers=headers)
-            print('status: {}, {}'.format(rsp.status, rsp.data.decode('utf-8')))
-            return
-        except Exception as e:
-            log.error("Connecting to jobchecker failed: {}".format(e))
-            print(e)
-            return
-    
-    return True    
 
 def _write_logs(input, logfile="/var/log/patching/patching.log"):
     now = datetime.now()
@@ -705,10 +686,10 @@ def _write_logs(input, logfile="/var/log/patching/patching.log"):
                 f.write("{}\n".format(value))
     return
 
-def _get_listActiveSystemsInGroup(client, key, groupname):
+def _get_listSystemsInGroup(client, key, groupname):
     if groupname != "":
         try:
-            systemid_list = client.systemgroup.listActiveSystemsInGroup(key, groupname)
+            systemid_list = client.systemgroup.listSystemsMinimal(key, groupname)
         except Exception as exc:  # pylint: disable=broad-except
             err_msg = 'Exception raised when trying to get system IDs from group {1}: {0}'.format(exc, groupname)
             log.error(err_msg)
@@ -716,20 +697,6 @@ def _get_listActiveSystemsInGroup(client, key, groupname):
 
         if systemid_list != 0:
             return systemid_list
-        else:
-            return None
-    return 
-
-def _get_systemname(client, key, sid):
-    if sid != "":
-        try:
-            systemname_obj = client.system.getName(key, sid)
-        except Exception as exc:  # pylint: disable=broad-except
-            err_msg = 'Exception raised when trying to get system name from ID: {1} {0}'.format(exc, sid)
-            log.error(err_msg)
-
-        if systemname_obj:
-            return systemname_obj['name']
         else:
             return None
     return 
@@ -747,44 +714,6 @@ def _get_systemid(client, key, target_system):
             return id
     return 
 
-def _patch_single(client, key, target_system_id, target_system_name, kwargs):
-    ret_single_system = dict()
-    ret = dict()
-    ret["Full_Update_Job_ID"] = {}
-    ret["Patching"] = []
-
-    minion_sid_list = [target_system_id]
-    
-    print("kwargs: {}".format(kwargs))
-    if "delay" in kwargs.keys():
-        delay = kwargs['delay']
-        if int(delay) >= 0:
-            nowlater = datetime.now() + timedelta(minutes=int(delay))
-    
-    if "schedule" in kwargs.keys():
-        schedule = kwargs['schedule']
-        nowlater = datetime.strptime(schedule, "%H:%M %d-%m-%Y")
-    
-    if not "delay" in kwargs.keys() and not "schedule" in kwargs.keys():
-        nowlater = datetime.now()
-
-    earliest_occurrence = six.moves.xmlrpc_client.DateTime(nowlater)
-    patch_job = 0
-    try:
-        patch_job = client.system.schedulePackageUpdate(key, minion_sid_list, earliest_occurrence)
-    except Exception as exc:  # pylint: disable=broad-except
-        err_msg = 'Exception raised when schedule patch job: {0}. \
-            Please double check if there is not already a job scheduled: {1}.'.format(exc, target_system_name)
-        log.debug(err_msg)
-        
-    if int(patch_job) > 0:
-        return patch_job
-    else:
-        log.warning("something went wrong while system.schedulePackageUpdate for {}".format(target_system_name))
-        return 0
-
- 
-    return ret
 
 def reboot(target_systems=[], **kwargs):
     '''
@@ -949,120 +878,17 @@ def _schedule_pkg_refresh_job(client, key, target_system_id, target_system, kwar
     return ret
 
 def _minion_presence_check(minion_list, timeout=2, gather_job_timeout=10):
-    print("checking minion presence...")
-    runner = salt.runner.RunnerClient(__opts__)
-    timeout = "timeout={}".format(timeout)
-    gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout)
-    print("the timeouts {} {}".format(timeout,gather_job_timeout))
-    
-    minion_status_list = runner.cmd('manage.status', ["tgt={}".format(minion_list), "tgt_type=list", timeout, gather_job_timeout], print_event=False)
-
-    return minion_status_list
-
-def refresh_package_list(target_system=None, groups=None, **kwargs):
-    suma_config = _get_suma_configuration()
-    server = suma_config["servername"]
-    ret = dict()
-    ret["refresh_package_list"] = []
-    all_systems_in_groups = []
-    all_to_refresh_minions = {}
-
-    if 'logfile' in kwargs:
-        #mylog = logging.getLogger()  # root logger - Good to get it only once.
-        for hdlr in log.handlers[:]:  # remove the existing file handlers
-            if isinstance(hdlr,logging.FileHandler): #fixed two typos here
-                log.removeHandler(hdlr)
-
-        file_handler_custom = logging.FileHandler(kwargs['logfile'])
-        file_handler_custom.setLevel(logging.DEBUG)
-        file_handler_custom.setFormatter(formatter)
-        log.addHandler(file_handler_custom)
-    
     try:
-        client, key = _get_session(server)
-    except Exception as exc:  # pylint: disable=broad-except
-        err_msg = 'Exception raised when connecting to spacewalk server ({0}): {1}'.format(server, exc)
-        log.error(err_msg)
-        return {'Error': err_msg}
+        import salt.client
+    except ImportError:
+        log.error("salt client not found")
+        return False
     
-    if target_system:
-        
-        if target_system != "":
-            try:
-                target_system_id = _get_systemid(client, key, target_system)
-            except Exception as exc:  # pylint: disable=broad-except
-                err_msg = 'Exception raised trying to find minion id ({0}): {1}'.format(target_system, exc)
-                log.error(err_msg)
-                ret[target_system] = {'Error': err_msg}
-            
-            ret1 = _schedule_pkg_refresh_job(client, key, target_system_id, target_system, kwargs)
-            ret["refresh_package_list"].append(ret1)            
-    
-    if groups:
-        print("Query systems in the SUMA groups.")
-        for g in groups:
-            try:
-                systems_in_groups = client.systemgroup.listSystemsMinimal(key, g)
-                all_systems_in_groups += systems_in_groups              
-            except Exception as exc:  # pylint: disable=broad-except
-                err_msg = 'Exception raised trying to get active minion list from group ({0}): {1}'.format(g, exc)
-                log.error(err_msg)
-
-    suma_minion_list = []
-    if len(all_systems_in_groups) == 0:
-        ret["comment"] = "No minion in SUMA groups found. Exit."
-        return ret
-        
-    for s in list(all_systems_in_groups):
-        if target_system == s["name"]:
-            all_systems_in_groups.remove(s)
-            continue
-        else:
-            suma_minion_list.append(s["name"])
-    
-    if len(all_systems_in_groups) > 0:
-        if kwargs.get("timeout") and kwargs.get("gather_job_timeout"):
-            online_minion_list = _minion_presence_check(suma_minion_list, timeout=kwargs['timeout'], 
-                                                 gather_job_timeout=kwargs['gather_job_timeout'])
-        else:
-            online_minion_list = _minion_presence_check(suma_minion_list)
-
-    for s in list(all_systems_in_groups):
-        for minion in online_minion_list["up"]:
-            if s["name"] == minion:
-                all_to_refresh_minions[s["name"]] = s['id']
-    #print(all_to_refresh_minions)
-
-    for minion_name, systemid in all_to_refresh_minions.items():
-            ret1 = _schedule_pkg_refresh_job(client, key, systemid, minion_name, kwargs)
-            ret["refresh_package_list"].append(ret1)
-
-    if 'logfile' in kwargs:
-        _write_logs(ret, logfile=kwargs['logfile'])
-    else:
-        _write_logs(ret)
-    
-    #print("ret[Patching]: {}".format(ret["Patching"]))
-    # below we remove all elements from list if val not dict
-    if len(ret["refresh_package_list"]) > 0:
-        for system in list(ret["refresh_package_list"]):
-            if isinstance(system, dict):
-                for key, val in system.items():
-                    if not isinstance(val, dict):
-                        ret["refresh_package_list"].remove(system)
-                    if not "Pkg refresh Job ID" in val.keys():
-                        ret["refresh_package_list"].remove(system)
-            else:
-                ret["refresh_package_list"].remove(system)
-
-    return ret
-
-def _minion_presence_check(minion_list, timeout=2, gather_job_timeout=10):
     print("checking minion presence...")
     runner = salt.runner.RunnerClient(__opts__)
     timeout = "timeout={}".format(timeout)
     gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout)
     print("the timeouts {} {}".format(timeout,gather_job_timeout))
     online_minions = runner.cmd('manage.up', [minion_list, "tgt_type=list", timeout, gather_job_timeout], print_event=False)
-    log.debug("online minions are: {}".format(online_minions))
+    #log.debug("online minions are: {}".format(online_minions))
     return online_minions
