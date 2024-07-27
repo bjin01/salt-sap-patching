@@ -31,7 +31,8 @@ import atexit
 import logging
 import os
 import yaml
-#import salt.client
+import json
+import salt.client
 import six
 from datetime import datetime,  timedelta
 from contextlib import contextmanager
@@ -290,7 +291,8 @@ def run(groups=[], **kwargs):
     .. code-block:: bash
 
         salt-run actionchain.run groups="[a_group1, b_group2]" \
-            reboot=True no_update=True \
+            job_check_state=my_jobcheck_sls \
+            reboot=True no_update=False \
             pre_states="[asdfmanager_org_1.bo_state_test, mypkgs]" post_states="[pause]" delay=5
 
     Orchestrate state file example in salt://orch/patch.sls:
@@ -306,22 +308,32 @@ def run(groups=[], **kwargs):
               - group1
               - group2
               - group3
-            - kwargs:
-                delay: 5
-                reboot: True
-                no_update: True
-                logfile: /var/log/patching/sumapatch.log
+            - pre_states:
+                - manager_org_1.bo_state_test
+                - mypkgs
+            - post_states:
+                - pause
+            - delay: 5
+            - reboot: True
+            - no_update: True
+            - logfile: /var/log/patching/sumapatch.log
+            - job_check_state: my_jobcheck_sls
         
         cmd:
         salt-run actionchain.run groups="[a_group1, b_group2]" \
             reboot=True no_update=True \
-            pre_states="[asdfmanager_org_1.bo_state_test, mypkgs]" post_states="[pause]" delay=5
+            job_check_state=my_jobcheck_sls \
+            pre_states="[manager_org_1.bo_state_test, mypkgs]" post_states="[pause]" delay=5
+        
+        or execute sls with orchestrate runner:
+        salt-run state.orchestrate actionchain.patching
                 
     '''
     #log.debug("----------------------------args: {} kwargs: {}".format(groups, kwargs))
     suma_config = _get_suma_configuration()
     server = suma_config["servername"]
     ret = dict()
+    ret["job_IDs"] = []
     
     
 
@@ -335,7 +347,17 @@ def run(groups=[], **kwargs):
         file_handler_custom.setLevel(logging.DEBUG)
         file_handler_custom.setFormatter(formatter)
         log.addHandler(file_handler_custom)
+    
 
+    if 'output_file' in kwargs and kwargs['output_file'] != "":
+        output_file = kwargs['output_file']
+    else:
+        now = datetime.now()
+        
+        today_date = now.strftime("%d_%m_%Y_%H%M%S")
+        output_file = f"/var/cache/salt/master/actionchain_jobs_{today_date}"
+        with open(output_file, 'w') as fp:
+            pass
 
     try:
         client, key = _get_session(server)
@@ -479,6 +501,8 @@ def run(groups=[], **kwargs):
                     if state_action_id == 0:
                         log.error("Failed to add pre state job to action chain for {}. Exit.".format(kwargs["pre_states"]))
                         return
+                    else:
+                        ret["job_IDs"].append({"system_name": system["name"], "sid": system["id"], "jobid": int(state_action_id)})
                 
             
             
@@ -492,6 +516,8 @@ def run(groups=[], **kwargs):
                 if pkg_action_id == 0:
                     log.error("Failed to add package upgrade to action chain for {}. Exit.".format(system["name"]))
                     break
+                else:
+                    ret["job_IDs"].append({"system_name": system["name"], "sid": system["id"], "jobid": pkg_action_id})
             
             #time.sleep(3)
             if "reboot" in kwargs and kwargs["reboot"]:
@@ -499,6 +525,7 @@ def run(groups=[], **kwargs):
                 for system in systemlist_with_pkgids:
                     log.debug("Add reboot job for {}".format(system["name"]))
                     reboot_jobid = _addSystemReboot(client, key, system["id"], label)
+                    ret["job_IDs"].append({"system_name": system["name"], "sid": system["id"], "jobid": reboot_jobid})
                     
             
             #time.sleep(3)
@@ -510,6 +537,8 @@ def run(groups=[], **kwargs):
                     if state_action_id == 0:
                         log.error("Failed to add post state job to action chain for {}. Exit.".format(kwargs["post_states"]))
                         break
+                    else:
+                        ret["job_IDs"].append({"system_name": system["name"], "sid": system["id"], "jobid": int(state_action_id)})
             
             if "delay" in kwargs and kwargs["delay"] != "":
                 delay = int(kwargs["delay"])
@@ -522,6 +551,22 @@ def run(groups=[], **kwargs):
                 return
             else:
                 ret["comment"] = "{} created successfully".format(label)
+                try:
+                    with open(output_file, "w") as outfile: 
+                        json.dump(ret, outfile)
+                except Exception as exc:  # pylint: disable=broad-except
+                    log.error("Failed to write output to file: {}".format(exc))
+                    return
+                
+                if "job_check_state" in kwargs and kwargs["job_check_state"] != "":
+                    pillar_data = f"pillar={{ ac_job_file: {output_file} }}"
+                    runner = salt.runner.RunnerClient(__opts__)
+                    #runner_args = f"[{jobs_file}, interval=2, timeout=10,
+                    pillar_data = f"pillar={{ ac_job_file: {output_file} }}"
+                    runner = salt.runner.RunnerClient(__opts__)
+                    #runner_args = f"[{jobs_file}, interval=2, timeout=10, email_to='bo.jin@jinbo01.com']"
+                    out = runner.cmd('state.orchestrate', [kwargs["job_check_state"], pillar_data], print_event=False)
+                    #print("actionchain.run runner output: {}".format(out))
                 return ret
     return ret
 
