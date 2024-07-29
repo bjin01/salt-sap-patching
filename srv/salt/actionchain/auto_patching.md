@@ -4,14 +4,14 @@
 3. Excuting the salt runner module to start the patching
 
 
-# 1. Introduction
+## 1. Introduction
 Automated patching is a feature that allows you to automatically patch your systems based on a schedule. This feature is available in Uyuni and SUSE Manager. The automated patching feature uses action chains to perform the patching. Action chains are a series of actions that are executed in a specific order. In this case, the action chain will perform the following actions:
 * Run salt pre-patch states
 * Apply updates 
 * Reboot the system
 * Run salt post-patch states
 
-# 2. Prerequisites
+## 2. Prerequisites
 Before you can use the automated patching feature, you need to make sure that the following prerequisites are met:
 * You have a Uyuni or SUSE Manager server installed and configured.
 * You have a Uyuni or SUSE Manager client registered to the server.
@@ -72,7 +72,7 @@ email_to: The email addresses to which the notification will be sent. No email w
 
 
 
-# 3. Excuting the salt runner module to start the patching
+## 3. Excuting the salt runner module to start the patching
 To start the automated patching process, you need to execute the salt runner module that is responsible for running the action chain. You can do this by running the following command on the Uyuni or SUSE Manager server:
 ```
 salt-run state.orchestrate actionchain.patching
@@ -82,6 +82,7 @@ The job check runner module can be executed by running the following command:
 ```
 salt-run state.orchestrate actionchain.check_jobs
 
+```
 ```
 salt-run state.orchestrate actionchain.check_jobs 'pillar={ ac_job_file: /var/cache/salt/master/actionchain_jobs_27_07_2024_070609 }'
 ```
