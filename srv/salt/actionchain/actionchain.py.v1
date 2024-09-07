@@ -413,7 +413,7 @@ def run(groups=[], **kwargs):
             ids.append(s['id'])
 
         unique_ids = list(set(ids))
-        log.info("unique_ids: {}".format(unique_ids))
+        print("unique_ids: {}".format(unique_ids))
         
         # need to add unique element from systemid_list_all_groups into unique_systemid_list_all_groups
         for u in unique_ids:
@@ -471,7 +471,7 @@ def run(groups=[], **kwargs):
                         if pkg['to_package_id'] not in pkg_ids:
                             pkg_ids.append(pkg['to_package_id'])
                         else:
-                            log.debug("Not adding duplicate pkg id: {} {}".format(pkg['to_package_id'], pkg['name']))
+                            print("Not adding duplicate pkg id: {} {}".format(pkg['to_package_id'], pkg['name']))
                 if len(pkg_ids) > 0:
                     systemlist_with_pkgids.append({"name": sname, "id": sid, "pkg_ids": pkg_ids})
             except Exception as exc:  # pylint: disable=broad-except
@@ -492,22 +492,11 @@ def run(groups=[], **kwargs):
                 
             #print("all systemlist_with_pkgids {}".format(systemlist_with_pkgids))
             
-            #Apply highstate first
-            log.debug("Add highstate job: {}".format("highstate"))
-            sort_num = _get_rhnactionchainentry_sortorder(client, key, chain_actionID)
-            for system in systemlist_with_pkgids:
-                state_action_id = _addState(client, key, system["id"], label, chain_actionID, [], sort_num)
-                if state_action_id == 0:
-                    log.error("Failed to add apply highstate job to action chain for {}. Exit.".format("highstate"))
-                    return
-                else:
-                    ret["job_IDs"].append({"system_name": system["name"], "sid": system["id"], "jobid": int(state_action_id)})
             
             if "pre_states" in kwargs and isinstance(kwargs["pre_states"], list):
                 log.debug("Add pre state job: {}".format(kwargs["pre_states"]))
-                sort_num = _get_rhnactionchainentry_sortorder(client, key, chain_actionID)
                 for system in systemlist_with_pkgids:
-                    
+                    sort_num = _get_rhnactionchainentry_sortorder(client, key, chain_actionID)
                     state_action_id = _addState(client, key, system["id"], label, chain_actionID, kwargs["pre_states"], sort_num)
                     if state_action_id == 0:
                         log.error("Failed to add pre state job to action chain for {}. Exit.".format(kwargs["pre_states"]))
@@ -542,8 +531,8 @@ def run(groups=[], **kwargs):
             #time.sleep(3)
             if "post_states" in kwargs and isinstance(kwargs["post_states"], list):
                 log.debug("Add post state job: {}".format(kwargs["post_states"]))
-                sort_num = _get_rhnactionchainentry_sortorder(client, key, chain_actionID)
                 for system in systemlist_with_pkgids:
+                    sort_num = _get_rhnactionchainentry_sortorder(client, key, chain_actionID)
                     state_action_id = _addState(client, key, system["id"], label, chain_actionID, kwargs["post_states"], sort_num)
                     if state_action_id == 0:
                         log.error("Failed to add post state job to action chain for {}. Exit.".format(kwargs["post_states"]))
@@ -581,18 +570,6 @@ def run(groups=[], **kwargs):
                 return ret
     return ret
 
-def _scheduleApplyStates(client, key, servername, sid, states):
-    earliest_occurrence = six.moves.xmlrpc_client.DateTime(datetime.now() + timedelta(minutes=60))
-    if len(states) > 0:
-        try:
-            poststate_jobid = client.system.scheduleApplyStates(key, sid, sid, states, earliest_occurrence, 0)
-            return poststate_jobid
-        except Exception as exc:  # pylint: disable=broad-except
-            err_msg = 'Exception raised when trying to schedule post state for {} {}'.format(servername, exc)
-            log.error(err_msg)
-            return 0
-    return 0
-
 def _get_rhnactionchainentry_sortorder(client, key, chain_id):
     sort_num = 0
     try:
@@ -601,7 +578,7 @@ def _get_rhnactionchainentry_sortorder(client, key, chain_id):
             curs.execute(select_rhnactionchainentry, (chain_id,))
             select_rhnactionchainentry_result = curs.fetchone()
             if select_rhnactionchainentry_result:
-                log.debug("select_rhnactionchainentry_result[0] sort_order: {} is instance {}".format(select_rhnactionchainentry_result[0], type(select_rhnactionchainentry_result[0])))
+                #log.debug("select_rhnactionchainentry_result[0]: {} is instance {}".format(select_rhnactionchainentry_result[0], type(select_rhnactionchainentry_result[0])))
                 if isinstance(select_rhnactionchainentry_result[0], int):
                     sort_num = select_rhnactionchainentry_result[0]
                     sort_num += 1
@@ -627,14 +604,14 @@ def _addState(client, key, sid, label, chain_id, states, sort_num):
         #print("states_string after rstrip {}".format(states_string))
         states_string_jobname = f'"custom states - {states_string}"'
     else:
-        states_string_jobname = f'"Apply highstate"'
+        return action_id
 
     select_rhnaction = """SELECT MAX(id) FROM rhnaction"""
     
     create_rhnaction = """INSERT INTO rhnaction (id, org_id, action_type, name, scheduler, earliest_action, version)
         VALUES(nextval('rhn_event_id_seq'), 1, 503, %s, 1, now(), 2) RETURNING id;"""
     
-    create_rhnactionapplystates = """INSERT INTO rhnactionapplystates (id, action_id, states, test) VALUES(nextval('rhn_act_apply_states_id_seq'), %s, NULLIF(%s, ''), 'N') RETURNING id;"""
+    create_rhnactionapplystates = """INSERT INTO rhnactionapplystates (id, action_id, states, test) VALUES(nextval('rhn_act_apply_states_id_seq'), %s, %s, 'N') RETURNING id;"""
     
     add_to_actionchain = """INSERT INTO rhnactionchainentry (actionchain_id, action_id, server_id, sort_order) 
         VALUES(%s, %s, %s, %s);"""
