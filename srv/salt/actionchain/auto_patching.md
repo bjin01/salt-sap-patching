@@ -6,6 +6,7 @@
 
 ## 1. Introduction
 Automated patching is a feature that allows you to automatically patch your systems based on a schedule. This feature is available in Uyuni and SUSE Manager. The automated patching feature uses action chains to perform the patching. Action chains are a series of actions that are executed in a specific order. In this case, the action chain will perform the following actions:
+* Run Highstate (to avoid missing gpg keys on some minions)
 * Run salt pre-patch states
 * Apply updates 
 * Reboot the system
@@ -44,6 +45,7 @@ run_patching:
     - reboot: True
     - no_update: False
     - job_check_state: actionchain.check_jobs
+    - log_level: info
 ```
 groups: The groups of systems that will be patched
 pre_states: The pre-patch states that will be executed

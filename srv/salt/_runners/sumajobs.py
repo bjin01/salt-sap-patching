@@ -52,16 +52,24 @@ if TYPE_CHECKING:
 
 
 
-#log.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
+log = logging.getLogger("sumajobs")
+formatter = logging.Formatter('%(asctime)s | %(module)s | %(levelname)s | %(message)s') 
+streamhandler = logging.StreamHandler()
+streamhandler.setFormatter(formatter)
 file_handler = logging.FileHandler('/var/log/patching/patching.log')
-file_handler.setLevel(logging.DEBUG)
+#file_handler.setLevel(logging.DEBUG)
 file_handler.setFormatter(formatter)
-log = logging.getLogger("action_chain")
-#log.setLevel(logging.DEBUG)
 log.addHandler(file_handler)
+#log.addHandler(streamhandler)
 
 _sessions = {}
+
+def set_log_level(log_level):
+    """Set the log level globally for the logger."""
+    if log_level.upper() == "DEBUG":
+        log.setLevel(logging.DEBUG)
+    else:
+        log.setLevel(logging.INFO)
 
 
 def __virtual__():
@@ -308,20 +316,11 @@ def actionchain_jobs(jobs_file="", interval=5, timeout=10, **kwargs):
     server = suma_config["servername"]
     ret = dict()
     email_content = ""
-    
-    
 
-    if 'logfile' in kwargs:
-        #mylog = logging.getLogger()  # root logger - Good to get it only once.
-        for hdlr in log.handlers[:]:  # remove the existing file handlers
-            if isinstance(hdlr,logging.FileHandler): #fixed two typos here
-                log.removeHandler(hdlr)
-
-        file_handler_custom = logging.FileHandler(kwargs['logfile'])
-        file_handler_custom.setLevel(logging.DEBUG)
-        file_handler_custom.setFormatter(formatter)
-        log.addHandler(file_handler_custom)
-
+    if 'log_level' in kwargs:
+        set_log_level(kwargs["log_level"])
+    else:
+        log.setLevel(logging.INFO)
 
     try:
         client, key = _get_session(server)

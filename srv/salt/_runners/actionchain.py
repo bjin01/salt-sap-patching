@@ -49,18 +49,24 @@ if TYPE_CHECKING:
     __opts__: Any = None
 
 
-
-#log.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
-file_handler = logging.FileHandler('/var/log/patching/patching.log')
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(formatter)
 log = logging.getLogger("action_chain")
-#log.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s | %(module)s | %(levelname)s | %(message)s') 
+streamhandler = logging.StreamHandler()
+streamhandler.setFormatter(formatter)
+file_handler = logging.FileHandler('/var/log/patching/patching.log')
+#file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter(formatter)
 log.addHandler(file_handler)
+#log.addHandler(streamhandler)
 
 _sessions = {}
 
+def set_log_level(log_level):
+    """Set the log level globally for the logger."""
+    if log_level.upper() == "DEBUG":
+        log.setLevel(logging.DEBUG)
+    else:
+        log.setLevel(logging.INFO)
 
 def __virtual__():
     '''
@@ -337,16 +343,10 @@ def run(groups=[], **kwargs):
     
     
 
-    if 'logfile' in kwargs:
-        #mylog = logging.getLogger()  # root logger - Good to get it only once.
-        for hdlr in log.handlers[:]:  # remove the existing file handlers
-            if isinstance(hdlr,logging.FileHandler): #fixed two typos here
-                log.removeHandler(hdlr)
-
-        file_handler_custom = logging.FileHandler(kwargs['logfile'])
-        file_handler_custom.setLevel(logging.DEBUG)
-        file_handler_custom.setFormatter(formatter)
-        log.addHandler(file_handler_custom)
+    if 'log_level' in kwargs:
+        set_log_level(kwargs["log_level"])
+    else:
+        log.setLevel(logging.INFO)
     
 
     if 'output_file' in kwargs and kwargs['output_file'] != "":
