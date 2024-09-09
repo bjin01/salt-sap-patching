@@ -53,14 +53,18 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger("sumajobs")
+log.propagate = False
 formatter = logging.Formatter('%(asctime)s | %(module)s | %(levelname)s | %(message)s') 
-streamhandler = logging.StreamHandler()
-streamhandler.setFormatter(formatter)
-file_handler = logging.FileHandler('/var/log/patching/patching.log')
-#file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(formatter)
-log.addHandler(file_handler)
-#log.addHandler(streamhandler)
+
+if not any(isinstance(h, logging.StreamHandler) for h in log.handlers):
+    streamhandler = logging.StreamHandler()
+    streamhandler.setFormatter(formatter)
+    log.addHandler(streamhandler)
+
+if not any(isinstance(h, logging.FileHandler) for h in log.handlers):
+    file_handler = logging.FileHandler('/var/log/patching/patching.log')
+    file_handler.setFormatter(formatter)
+    log.addHandler(file_handler)
 
 _sessions = {}
 
@@ -378,6 +382,7 @@ def actionchain_jobs(jobs_file="", interval=5, timeout=10, **kwargs):
                         next_check_time = datetime.now() + timedelta(minutes=interval)
                         interval_internal = int(interval) * 60
                         log.info("Next loop check in {} seconds at {}".format(interval_internal, next_check_time.strftime("%d-%m-%Y, %H:%M:%S")))
+                        log.info("Job check ends once all jobs finished before timeout at {}".format(time_end.strftime("%d-%m-%Y, %H:%M:%S")))
                         time.sleep(interval_internal)
                     else:
                         print("All jobs done. Exit.")

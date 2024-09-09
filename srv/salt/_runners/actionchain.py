@@ -50,14 +50,18 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger("action_chain")
+log.propagate = False
 formatter = logging.Formatter('%(asctime)s | %(module)s | %(levelname)s | %(message)s') 
-streamhandler = logging.StreamHandler()
-streamhandler.setFormatter(formatter)
-file_handler = logging.FileHandler('/var/log/patching/patching.log')
-#file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(formatter)
-log.addHandler(file_handler)
-#log.addHandler(streamhandler)
+
+if not any(isinstance(h, logging.StreamHandler) for h in log.handlers):
+    streamhandler = logging.StreamHandler()
+    streamhandler.setFormatter(formatter)
+    log.addHandler(streamhandler)
+
+if not any(isinstance(h, logging.FileHandler) for h in log.handlers):
+    file_handler = logging.FileHandler('/var/log/patching/patching.log')
+    file_handler.setFormatter(formatter)
+    log.addHandler(file_handler)
 
 _sessions = {}
 
@@ -439,12 +443,12 @@ def run(groups=[], **kwargs):
             log.info("online_minions: {}".format(online_minions))
             
         else:
-            print("No active minions in list. Exit.")
+            log.info("No active minions in list. Exit.")
             return
         
         online_systems = []
         if not online_minions:
-            print("Failed to get online minions. Exit")
+            log.eror("Failed to get online minions. Exit")
             return
         
         for system in all_data:
@@ -610,7 +614,7 @@ def _get_rhnactionchainentry_sortorder(client, key, chain_id):
                 sort_num = 0
         return sort_num
     except Exception as e:
-        print(f"An error occurred _get_cursor: {e}")
+        log.error(f"An error occurred _get_cursor: {e}")
         return 0
     
 
@@ -670,7 +674,7 @@ def _addState(client, key, sid, label, chain_id, states, sort_num):
 
             return action_id
     except Exception as e:
-        print(f"An error occurred _addState: {e}")
+        log.error(f"An error occurred _addState: {e}")
         return 0
 
     
@@ -708,7 +712,7 @@ def _scheduleChain(client, key, action_label, earliest_occurrence):
     jobID = 0
     try:
         jobID = client.actionchain.scheduleChain(key, action_label, earliest_occurrence)
-        print("action chain jobID: {}".format(jobID))
+        log.info("action chain jobID: {} created".format(jobID))
         return jobID
     except Exception as exc:  # pylint: disable=broad-except
         err_msg = 'Exception raised when trying to schedule action chain {1}: {0}'.format(exc, action_label)
@@ -952,11 +956,11 @@ def _minion_presence_check(minion_list, timeout=2, gather_job_timeout=10):
         log.error("salt client not found")
         return False
     
-    print("checking minion presence...")
+    log.info("checking minion presence...")
     runner = salt.runner.RunnerClient(__opts__)
     timeout = "timeout={}".format(timeout)
     gather_job_timeout = "gather_job_timeout={}".format(gather_job_timeout)
-    print("the timeouts {} {}".format(timeout,gather_job_timeout))
+    log.info("the timeouts {} {}".format(timeout,gather_job_timeout))
     online_minions = runner.cmd('manage.up', [minion_list, "tgt_type=list", timeout, gather_job_timeout], print_event=False)
     #log.debug("online minions are: {}".format(online_minions))
     return online_minions
