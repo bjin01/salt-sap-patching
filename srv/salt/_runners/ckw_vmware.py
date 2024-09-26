@@ -30,19 +30,20 @@ def create_snapshot(vm_name, snapshot_name, description=None, memdump=False, qui
 
     try:
         # Run the salt-cloud command
-        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        result = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = result.communicate()
 
-        # Return the output
+        # Return the output and result code
         return {
-            'stdout': result.stdout,
-            'stderr': result.stderr,
+            'stdout': stdout.decode('utf-8'),
+            'stderr': stderr.decode('utf-8'),
             'returncode': result.returncode
         }
     except subprocess.CalledProcessError as e:
         return {
             'error': True,
-            'stdout': e.stdout,
-            'stderr': e.stderr,
+            'stdout': e.stdout.decode('utf-8'),
+            'stderr': e.stderr.decode('utf-8'),
             'returncode': e.returncode
         }
 
