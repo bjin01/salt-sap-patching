@@ -88,4 +88,8 @@ salt-run state.orchestrate actionchain.check_jobs
 ```
 salt-run state.orchestrate actionchain.check_jobs 'pillar={ ac_job_file: /var/cache/salt/master/actionchain_jobs_27_07_2024_070609 }'
 ```
-
+```
+salt-run actionchain.run groups="[Censhare-Test]" reboot=False no_update=False pre_states="[users.bojin]" post_states="[users.bojin]" delay=5
+salt-run actionchain.run groups="[Censhare-Test]" reboot=False no_update=True pre_states="[manager_org_1.user_bojin]" post_states="[manager_org_1.user_bojin]" delay=1 no_presence_check=True
+salt-run actionchain.run groups="[TEST]" reboot=True no_update=False pre_states="[disk.status]" post_states="[disk.status]" delay=2
+```
