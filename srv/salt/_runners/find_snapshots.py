@@ -19,7 +19,7 @@ def get_snapshots_for_vm(vcenter_name):
 
         # Parse the JSON output
         output = json.loads(stdout)
-        print(f"JSON Output from {vcenter_name}: {output}")
+        # print(f"JSON Output from {vcenter_name}: {output}")
         return output
 
     except subprocess.CalledProcessError as e:
@@ -59,7 +59,8 @@ def print_snapshots(snapshots, description_filter, email_body):
                     if isinstance(snapshot_info, dict):
                         for _, data in snapshot_info.items():
                             description = data.get('description', '')
-                            if description_filter in description:
+                            name_in_snapshot = data.get('name', '')
+                            if description_filter in description or description_filter in name_in_snapshot:
                                 snapshot_found = True
                                 # Prepare the details to be included in the email body
                                 email_body += f"Snapshot found on: {host}\n"
