@@ -198,5 +198,5 @@ def get_groups(minion_id, **kwargs):
         return groups
     
 if __name__ == '__main__':
-   output = get_groups("vmsumaprx804p01.svz.admin.ch")
+   output = get_groups("host.example.com")
    print(output)

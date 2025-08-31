@@ -4,11 +4,11 @@ existing_suma_groups:
 
 target_groups:
   - a_group1: 
-      email: mk@bit.admin.ch
-      t7user: t7uia
+      email: mk@example.com
+      t7user: t7aaa
   - b_group2: 
-      email: ab@bit.admin.ch
-      t7user: t7iow
+      email: ab@example.com
+      t7user: t7bbb
 
 template_sls:
   - test2.sls
